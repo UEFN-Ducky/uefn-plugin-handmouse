@@ -4,8 +4,12 @@
   <meta charset="utf-8">
   <script src="../../_kit/ducky.js"></script>
   <style>
-    html, body { margin: 0; background: transparent; }
-    #box { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+    /* Opaque: a see-through page shows the iframe's white backdrop. The app never makes the
+       dropdown shorter than 120 px, so the content is centred in whatever height it gets. */
+    html, body { margin: 0; background: var(--card); }
+    body { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
+    #box { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .hint { font-size: 11px; color: var(--muted); text-align: center; }
     .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
     .dot.on { background: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 25%, transparent); }
@@ -30,6 +34,7 @@
       <button class="primary" id="toggle" disabled>Start</button>
       <button id="open" title="Open the Hand Mouse panel">Open panel</button>
     </div>
+    <div class="hint">Ctrl+Alt+G switches game mode</div>
   </div>
   <script>
     const CHANNEL = "uefn-plugin-ui";
@@ -84,7 +89,11 @@
     };
     $("open").onclick = () => call("panel.open", { action: "panel:main" }).catch(() => {});
     window.addEventListener("DOMContentLoaded", () => {
-      call("header_menu_size", { height: document.getElementById("box").offsetHeight }).catch(() => {});
+      // The page loads while the dropdown is hidden (height 0), so report again once it shows.
+      new ResizeObserver(() => {
+        const h = $("box").offsetHeight;
+        if (h) call("header_menu_size", { height: h }).catch(() => {});
+      }).observe($("box"));
       tick();
     });
   </script>
