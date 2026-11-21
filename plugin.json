@@ -1,7 +1,7 @@
 {
   "id": "handmouse",
   "kind": "plugin",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "label": "Hand Mouse",
   "description": "Control the Windows cursor with your hand through the webcam: point to move, quick pinch to click, hold the pinch to drag, two fingers to scroll, pinch with both hands to resize, zoom and rotate (real two-finger touch), a game mode (one hand walks with WASD, the other aims the camera, every control re-bindable) and your own recorded gestures for clicks, hotkeys and held game keys. Works in Ducky, UEFN, games and every app.",
   "min_app_version": "1.0.0",

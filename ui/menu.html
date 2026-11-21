@@ -6,8 +6,8 @@
   <style>
     /* Opaque: a see-through page shows the iframe's white backdrop. The app never makes the
        dropdown shorter than 120 px, so the content is centred in whatever height it gets. */
-    html, body { margin: 0; background: var(--card); }
-    body { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
+    html, body { margin: 0; padding: 0; background: var(--card); overflow: hidden; }
+    body { height: 100vh; display: flex; flex-direction: column; justify-content: center; }
     #box { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
     .hint { font-size: 11px; color: var(--muted); text-align: center; }
     .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -27,7 +27,7 @@
     button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   </style>
 </head>
-<body class="dk-page">
+<body>
   <div id="box">
     <div class="row"><span class="dot" id="dot"></span><span class="t" id="title">Hand Mouse</span><span class="d" id="detail">Checking…</span></div>
     <div class="btns">
