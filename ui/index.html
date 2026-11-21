@@ -407,7 +407,7 @@
   const TOL_HINT = { Strict: "Fewer accidents, needs a precise pose", Normal: "Good for most gestures", Loose: "Easier to trigger, may fire by accident" };
 
   // ---------- state ----------
-  let S = null, G = [], BI = {}, SET = null, CAMS = [], camNote = "", image = "";
+  let S = null, G = [], BI = {}, SET = null, CAMS = [], camNote = "", image = "", PROFS = [], profName = "";
   let panel = null, confirmDel = null, logOpen = false, ddOpen = false, visible = true, timer = null, lastRecordT = 0, recWas = false;
   const NG0 = () => ({ step: 1, recId: null, rec: null, failed: false, action: null, keys: "", amt: 3, name: "", tol: "Normal", saved: false, hold: false });
   let ng = NG0();
@@ -477,7 +477,8 @@
     }
     $("fps").hidden = !s.running;
     $("handDot").style.background = s.hand ? V("green") : V("muted");
-    $("fpsText").textContent = `${handsText(s)} · ${Math.round(s.fps || 0)} fps`;
+    $("fpsText").textContent = `${handsText(s)} · ${Math.round(s.fps || 0)} fps${s.out_hz ? ` → ${s.out_hz} Hz` : ""}`;
+    $("fps").title = `Camera: ${Math.round(s.fps || 0)} pictures a second. Cursor: updated ${s.out_hz || 0} times a second, ${s.ms || 0} ms after each picture.`;
     $("gear").classList.toggle("on", panel === "settings");
     const g = gameOn();
     $("gameBtn").classList.toggle("on", g);
@@ -658,6 +659,10 @@
       <div class="phead"><button class="back" data-act="close" aria-label="Back">‹</button><b style="flex:1">Game controls</b>${tog("game", on, "Game mode")}</div>
       <div class="muted s13" style="line-height:1.5">${esc(Sd)} hand is a thumbstick: where it first appears is the center, move it off-center to walk. Drop it out of view to re-center.
         ${esc(P)} hand turns the camera like a mouse. Click a box and press any key to rebind, or pick a mouse button.</div>
+      <div style="display:flex;flex-direction:column;gap:8px"><span class="sect">Game profiles</span>
+        ${PROFS.length ? `<div class="row" style="gap:8px;flex-wrap:wrap">${PROFS.map((p) => `<span style="display:inline-flex;gap:4px"><button class="pill" data-act="pfApply" data-v="${esc(p.id)}" title="Use these controls">${esc(p.name)}</button><button class="pill" data-act="pfDel" data-v="${esc(p.id)}" title="Delete this profile" aria-label="Delete ${esc(p.name)}" style="padding:0 9px">✕</button></span>`).join("")}</div>`
+          : `<span class="muted s13" style="line-height:1.5">Save these controls under a game's name, then switch back to them in one click.</span>`}
+        <div class="row" style="gap:6px;flex-wrap:nowrap"><input class="field" data-input="pfName" value="${esc(profName)}" placeholder="Game name" aria-label="Profile name" maxlength="40" style="height:38px;font-size:14px"><button class="pill big" data-act="pfSave">Save</button></div></div>
       ${slider("look_speed", "Camera speed", v.look_speed ?? 4, 1, 10, 0.5, (x) => x.toFixed(1), "Slow", "Fast", (x) => saveSettings({ look_speed: x }), true)}
       ${slider("stick_dead", "Stick deadzone", v.stick_dead ?? 0.35, 0.15, 0.8, 0.05, (x) => x.toFixed(2), "Twitchy", "Relaxed", (x) => saveSettings({ stick_dead: x }), true)}
       <div>${rows}</div>
@@ -765,6 +770,7 @@
         <div style="display:flex;flex-direction:column;gap:6px;opacity:${two ? 1 : 0.4}"><span class="muted s13">Hand that moves the cursor</span>
           <div class="seg"><button class="${v.pointer_hand !== "left" ? "on" : ""}" data-act="ptr" data-v="right">Right</button><button class="${v.pointer_hand === "left" ? "on" : ""}" data-act="ptr" data-v="left">Left</button></div></div></div>
       ${slider("smoothing", "Smoothing", v.smoothing ?? 0.5, 0, 0.95, 0.05, pct, "Snappy", "Smooth", (x) => saveSettings({ smoothing: x }), true)}
+      ${slider("predict", "Prediction", v.predict ?? 0.5, 0, 1, 0.05, pct, "Off", "Leads more", (x) => saveSettings({ predict: x }), true)}
       ${slider("margin", "Reach", v.margin ?? 0.15, 0, 0.35, 0.01, pct, "Whole camera", "Small moves", (x) => saveSettings({ margin: x }), true)}
       ${slider("pinch", "Pinch sensitivity", v.pinch ?? 0.35, 0.1, 0.6, 0.01, (x) => x.toFixed(2), "Tight", "Loose", (x) => saveSettings({ pinch: x }), true)}
       ${slider("drag_hold", "Hold pinch to drag", v.drag_hold ?? 0.35, 0.15, 1.5, 0.05, (x) => x.toFixed(2) + " s", "Quick", "Slow", (x) => saveSettings({ drag_hold: x }), true)}
@@ -772,6 +778,7 @@
       ${slider("palm_hold", "Palm hold to pause", v.palm_hold ?? 1, 0.3, 3, 0.1, (x) => x.toFixed(1) + " s", "0.3 s", "3 s", (x) => saveSettings({ palm_hold: x }), true)}
       <div class="sep">
         <div class="trow"><div><div class="tt">Ring around the cursor</div><div class="td">Same colors as the hands in the preview</div></div>${tog("ring", v.overlay !== false, "Ring")}</div>
+        <div class="trow"><div><div class="tt">60 fps camera</div><div class="td">Asks a webcam for its fast mode: quicker, smoother tracking. Phone and virtual cameras are left as they are</div></div>${tog("fastcam", v.fast_camera !== false, "60 fps camera")}</div>
         <div class="legend">${[["Move hand", "blue"], ["Click / drag", "green"], ["Scroll", "amber"], ["Gesture", "purple"], ["Recording", "red"], ["Paused", "muted"]]
           .map(([t, c]) => `<div style="--c:${V(c)}"><i></i>${t}</div>`).join("")}</div>
         <span class="muted small">In the preview the hand in control is bright with a label; the other hand is dimmed.</span></div>
@@ -840,6 +847,8 @@
   async function loadSettings() {
     const out = await rpc("settings");
     if (!fail(out)) SET = out.settings;
+    const p = await rpc("profile");
+    if (p.ok !== false) PROFS = p.profiles || [];
   }
   async function loadCameras(refresh) {
     if (refresh) camNote = "Looking for cameras…";
@@ -859,7 +868,7 @@
       const out = await rpc("save_settings", { fields: f });
       if (fail(out)) return;
       SET = out.settings;
-      if (out.restarted) toast("Switched camera: tracking restarted");
+      if (out.restarted) toast("Camera changed: tracking restarted");
     }, 200);
   }
   async function saveGesture(id, fields) {
@@ -1017,6 +1026,25 @@
     two() { saveSettings({ two_hands: !(SET && SET.two_hands !== false) }); renderRail(); },
     ptr(btn) { saveSettings({ pointer_hand: btn.dataset.v }); renderRail(); },
     ring() { saveSettings({ overlay: !(SET && SET.overlay !== false) }); renderRail(); },
+    fastcam() { saveSettings({ fast_camera: !(SET && SET.fast_camera !== false) }); renderRail(); },
+    async pfSave() {
+      const name = profName.trim();
+      if (!name) { toast("Type the game's name first", V("muted")); return; }
+      if (Object.keys(pend).length) await new Promise((r) => setTimeout(r, 400));  // let a pending change save first
+      const out = await rpc("profile", { action: "save", name });
+      if (fail(out)) return;
+      PROFS = out.profiles || []; profName = ""; renderRail(); toast(`Saved profile '${name}'`);
+    },
+    async pfApply(btn) {
+      const out = await rpc("profile", { action: "apply", name: btn.dataset.v });
+      if (fail(out)) return;
+      SET = out.settings; renderRail(); toast(`Using '${out.applied}' controls`);
+    },
+    async pfDel(btn) {
+      const out = await rpc("profile", { action: "delete", name: btn.dataset.v });
+      if (fail(out)) return;
+      PROFS = out.profiles || []; renderRail();
+    },
     game() {
       const on = !gameOn();
       if (S) S.game = on;
@@ -1051,6 +1079,8 @@
       box.querySelector(".fill").style.width = p + "%";
       box.querySelector(".knob").style.left = p + "%";
       const bub = box.querySelector(".bub"); bub.style.left = p + "%"; bub.textContent = sl.fmt(v);
+    } else if (t.dataset.input === "pfName") {
+      profName = t.value;
     } else if (t.dataset.input === "ngName") {
       ng.name = t.value;
       const ok = !!ng.name.trim();

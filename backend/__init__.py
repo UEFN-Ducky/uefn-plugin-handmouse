@@ -38,10 +38,33 @@ DEFAULTS = {
     "game_mode": False,   # stick hand = direction keys, look hand = camera (Ctrl+Alt+G toggles)
     "look_speed": 4.0,    # game camera speed
     "stick_dead": 0.35,   # game stick deadzone, in hand sizes
+    "predict": 0.5,       # how far the cursor leads a moving hand (0 = none, 1 = the full camera delay)
+    "fast_camera": True,  # ask a real webcam for 60 fps (virtual cameras are left alone)
 }
+# what each setting does, for agents (handmouse_settings returns it with value, default and range)
+FIELD_HELP = {
+    "camera": "Webcam index from handmouse_cameras. Changing it restarts tracking.",
+    "smoothing": "Cursor steadiness at rest. Higher = steadier, slightly slower to start moving.",
+    "margin": "Share of the camera frame ignored at each edge. Higher = smaller hand moves cross the screen.",
+    "pinch": "Thumb-to-finger distance (in hand sizes) that counts as a pinch. Higher = easier, looser.",
+    "scroll_speed": "Wheel notches per scroll step.",
+    "overlay": "Colored ring around the cursor.",
+    "palm_hold": "Seconds of open palm that pause / resume.",
+    "drag_hold": "Seconds a pinch is held before it becomes a drag. A quicker pinch is a click.",
+    "two_hands": "With both hands in view, one moves the cursor and the other clicks.",
+    "pointer_hand": "right or left: the hand that moves the cursor / the game camera.",
+    "game_mode": "Stick hand presses direction keys, look hand turns the camera. Ctrl+Alt+G toggles it.",
+    "look_speed": "Game camera speed.",
+    "stick_dead": "Game stick deadzone in hand sizes. Lower = walks on smaller moves.",
+    "predict": "How far the cursor leads a moving hand to hide camera delay. 0 = none; lower it if the cursor overshoots.",
+    "fast_camera": "Ask a real webcam for 60 fps (takes effect at start; virtual cameras are left alone).",
+    "builtins": "Built-in gestures on/off: move, click, drag, right, scroll, palm, pinch2 (both hands pinched = two-finger touch).",
+    "game_keys": "Game bindings per slot (up, down, left, right, pinch, rpinch = stick hand; look_pinch, look_rpinch = look hand): a key ('e'), a combo ('ctrl+r'), lmb / rmb / mmb, or '' to unbind.",
+}
+PROFILE_KEYS = ("game_keys", "look_speed", "stick_dead", "pinch", "smoothing", "predict", "pointer_hand")
 LIMITS = {"camera": (0, 9), "smoothing": (0.0, 0.95), "margin": (0.0, 0.35),
           "pinch": (0.1, 0.6), "scroll_speed": (1, 10), "palm_hold": (0.3, 3.0), "drag_hold": (0.15, 1.5),
-          "look_speed": (1.0, 10.0), "stick_dead": (0.15, 0.8)}
+          "look_speed": (1.0, 10.0), "stick_dead": (0.15, 0.8), "predict": (0.0, 1.0)}
 BUILTINS = ["move", "click", "drag", "right", "scroll", "palm", "pinch2"]
 # game bindings: slot -> key, combo, 'lmb' / 'rmb' / 'mmb', or '' (unbound)
 GAME_KEYS = {"up": "w", "down": "s", "left": "a", "right": "d", "pinch": "space", "rpinch": "shift",
@@ -162,7 +185,7 @@ def register(api) -> None:
                         except ValueError:
                             continue  # keep the old binding rather than a key the helper can't press
                     out["game_keys"][slot] = key
-            elif k in ("overlay", "two_hands", "game_mode"):
+            elif k in ("overlay", "two_hands", "game_mode", "fast_camera"):
                 out[k] = bool(v)
             elif k == "pointer_hand":
                 out[k] = "left" if str(v).lower() == "left" else "right"
@@ -218,6 +241,7 @@ def register(api) -> None:
         cams = read_json("cameras.json") or []
         cam = next((c for c in cams if c.get("index") == cfg["camera"]), None)
         cfg["camera_name"] = cam["name"] if cam else f"Camera {cfg['camera']}"
+        cfg["camera_virtual"] = bool(cam["virtual"]) if cam else True  # unknown camera: don't change its mode
         cfg["gestures"] = [{k: g.get(k) for k in ("id", "name", "samples", "tolerance", "hold", "action", "enabled")}
                            for g in gesture_docs()]
         write_json("config.json", cfg)  # a running helper reloads it within half a second
@@ -424,6 +448,8 @@ def register(api) -> None:
                "paused": bool(info.get("paused")) and run,
                "game": bool(info.get("game")) if run else settings()["game_mode"],
                "held": info.get("held") or [] if run else [],
+               # ms: frame arrival -> input sent; out_hz: cursor updates a second (camera fps is `fps`)
+               "ms": info.get("ms", 0) if run else 0, "out_hz": info.get("out_hz", 0) if run else 0,
                "match": info.get("match") if run else None, "record": info.get("record") if run else None,
                "events": info.get("events") or [], "last_record": read_json("record_last.json"),
                "settings": settings()}
@@ -519,7 +545,7 @@ def register(api) -> None:
 
     def save_settings(fields: dict | None = None) -> dict:
         if not isinstance(fields, dict) or not fields:
-            return {"ok": False, "error": "Give fields, e.g. {\"smoothing\": 0.7}. Keys: " + ", ".join([*DEFAULTS, "builtins"])}
+            return {"ok": False, "error": "Give fields, e.g. {\"smoothing\": 0.7}. Keys: " + ", ".join(FIELD_HELP)}
         before = data.get(SETTINGS_KEY)
         cur = settings()
         if isinstance(fields.get("builtins"), dict):
@@ -533,7 +559,7 @@ def register(api) -> None:
             return {"ok": False, "error": str(exc)}
         write_config()
         restarted = False
-        if values["camera"] != cur["camera"] and running():
+        if (values["camera"], values["fast_camera"]) != (cur["camera"], cur["fast_camera"]) and running():
             stop()  # the camera opens only at start
             restarted = bool(start().get("ok"))
         api.changeset.record(command="handmouse_save_settings", kind="settings", ident="main", facet="values",
@@ -541,6 +567,63 @@ def register(api) -> None:
                              inverse=[{"command": "handmouse_save_settings",
                                        "params": {"fields": (before or {}).get("values") or clean({})}}])
         return {"ok": True, "settings": values, "restarted": restarted}
+
+    def describe_settings() -> dict:
+        cur, dflt = settings(), clean({})
+        fields = {}
+        for k, text in FIELD_HELP.items():
+            fields[k] = {"value": cur[k], "default": dflt[k], "help": text}
+            if k in LIMITS:
+                fields[k]["min"], fields[k]["max"] = LIMITS[k]
+        return {"ok": True, "settings": cur, "defaults": dflt, "fields": fields}
+
+    # ---------- game profiles: a named set of bindings and feel, one per game ----------
+
+    def profile_rows() -> list:
+        rows = [{"id": k.split(".", 1)[1], **v} for k, v in data.items("profile.").items() if isinstance(v, dict)]
+        return sorted(rows, key=lambda r: str(r.get("name", "")).lower())
+
+    def profile(action: str = "list", name: str = "", fields: dict | None = None) -> dict:
+        action, slug = str(action or "list").lower(), _slug(name)
+        if action == "list":
+            return {"ok": True, "profiles": profile_rows(), "saved_keys": list(PROFILE_KEYS)}
+        if not slug:
+            return {"ok": False, "error": "Give the profile a name, e.g. 'Minecraft'."}
+        key = f"profile.{slug}"
+        before = data.get(key)
+        if action == "save":
+            cur = settings()
+            merged = {**cur, **(fields or {})}
+            if isinstance((fields or {}).get("game_keys"), dict):
+                merged["game_keys"] = {**cur["game_keys"], **fields["game_keys"]}
+            values = {k: v for k, v in clean(merged).items() if k in PROFILE_KEYS}
+            doc = {"name": str(name).strip()[:40], "values": values}
+            try:
+                data.put(key, doc)
+            except PermissionError as exc:
+                return {"ok": False, "error": str(exc)}
+            api.changeset.record(command="handmouse_profile", kind="profile", ident=slug, facet="record",
+                                 before=before, slot=f"{pid}://profile/{slug}/record",
+                                 inverse=[{"command": "handmouse_profile", "params": (
+                                     {"action": "save", "name": before.get("name", slug), "fields": before.get("values")}
+                                     if before else {"action": "delete", "name": slug})}])
+            return {"ok": True, "profile": {"id": slug, **doc}, "profiles": profile_rows()}
+        if before is None:
+            return {"ok": False, "error": f"No profile {name!r}. Saved: " + (", ".join(r["name"] for r in profile_rows()) or "none")}
+        if action == "apply":
+            out = save_settings(dict(before.get("values") or {}))
+            return {**out, "applied": before.get("name", slug)}
+        if action == "delete":
+            try:
+                data.delete(key)
+            except PermissionError as exc:
+                return {"ok": False, "error": str(exc)}
+            api.changeset.record(command="handmouse_profile", kind="profile", ident=slug, facet="record",
+                                 before=before, slot=f"{pid}://profile/{slug}/record",
+                                 inverse=[{"command": "handmouse_profile", "params": {
+                                     "action": "save", "name": before.get("name", slug), "fields": before.get("values")}}])
+            return {"ok": True, "id": slug, "profiles": profile_rows()}
+        return {"ok": False, "error": "action is list, save, apply or delete."}
 
     # ---------- custom gestures ----------
 
@@ -694,7 +777,7 @@ def register(api) -> None:
 
     @api.tool(intent=INTENT, listener=False)
     def handmouse_status() -> dict:
-        """Hand Mouse state: setup progress, running, gesture mode, matched custom gesture, recent activity."""
+        """Hand Mouse state: setup progress, running, gesture mode, matched custom gesture, recent activity, and speed (fps = camera frames a second, ms = delay from frame to input, out_hz = cursor updates a second)."""
         return status()
 
     @api.tool(intent=INTENT, listener=False)
@@ -714,12 +797,12 @@ def register(api) -> None:
 
     @api.tool(intent=INTENT, listener=False)
     def handmouse_settings() -> dict:
-        """Read Hand Mouse settings: camera, smoothing, margin, pinch, scroll_speed, overlay, palm_hold, builtins."""
-        return {"ok": True, "settings": settings(), "defaults": clean({})}
+        """Read every Hand Mouse setting with its value, default, range and what it does (fields), ready to change with handmouse_save_settings."""
+        return describe_settings()
 
     @api.tool(intent=INTENT, listener=False)
     def handmouse_save_settings(fields: dict | None = None) -> dict:
-        """Change Hand Mouse settings or turn built-in gestures on/off (builtins: move, click, drag, right, scroll, palm, pinch2 = both hands pinched -> two-finger touch to resize/rotate/pan). drag_hold: seconds a pinch must be held to start a drag (quicker = click). game_mode: true = stick hand presses direction keys, look hand moves the camera; game_keys {up, down, left, right, pinch, rpinch, look_pinch, look_rpinch}: a key, combo, lmb/rmb/mmb or '' each; look_speed 1-10; stick_dead 0.15-0.8. two_hands: true = with both hands in view one moves, the other clicks; pointer_hand: right|left."""
+        """Change Hand Mouse settings or turn built-in gestures on/off (builtins: move, click, drag, right, scroll, palm, pinch2 = both hands pinched -> two-finger touch to resize/rotate/pan). drag_hold: seconds a pinch must be held to start a drag (quicker = click). game_mode: true = stick hand presses direction keys, look hand moves the camera; game_keys {up, down, left, right, pinch, rpinch, look_pinch, look_rpinch}: a key, combo, lmb/rmb/mmb or '' each; look_speed 1-10; stick_dead 0.15-0.8. predict 0-1: how far the cursor leads a moving hand (lower if it overshoots); smoothing 0-0.95; fast_camera: 60 fps on real webcams. handmouse_settings lists every field with range and meaning. two_hands: true = with both hands in view one moves, the other clicks; pointer_hand: right|left."""
         return save_settings(fields)
 
     @api.tool(intent=INTENT, listener=False)
@@ -752,6 +835,11 @@ def register(api) -> None:
     def handmouse_delete_gesture(gesture_id: str = "") -> dict:
         """Delete a Hand Mouse custom gesture."""
         return delete_gesture(gesture_id)
+
+    @api.tool(intent=INTENT, listener=False)
+    def handmouse_profile(action: str = "list", name: str = "", fields: dict | None = None) -> dict:
+        """Hand Mouse game profiles, one per game (controls preset: game_keys, look_speed, stick_dead, pinch, smoothing, predict, pointer_hand). action: list | save (current settings, plus fields to override, e.g. {game_keys: {pinch: 'e'}}) | apply | delete. name: e.g. 'Minecraft'."""
+        return profile(action, name, fields)
 
     # ---------- workflow nodes ----------
 
@@ -799,6 +887,7 @@ def register(api) -> None:
     api.register_panel_rpc("start", lambda: start())
     api.register_panel_rpc("stop", lambda: stop())
     api.register_panel_rpc("settings", lambda: {"ok": True, "settings": settings(), "defaults": clean({})})
+    api.register_panel_rpc("profile", lambda action="list", name="", fields=None: profile(action, name, fields))
     api.register_panel_rpc("save_settings", lambda fields=None: save_settings(fields))
     api.register_panel_rpc("preview", lambda: preview())
     api.register_panel_rpc("gestures", lambda: list_gestures())

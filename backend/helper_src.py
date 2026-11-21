@@ -19,6 +19,9 @@ def read_hand(p):
         "rpinch": _d(p[4], p[12]) / size,    # thumb + middle
         "fingers": [p[t][1] < p[t - 2][1] for t in (8, 12, 16, 20)],
         "point": ((p[4][0] + p[8][0]) / 2, (p[4][1] + p[8][1]) / 2),
+        # knuckle row: it doesn't move when the fingers pinch, so a click lands where you aimed,
+        # and four landmarks averaged shake half as much as one
+        "palm": (sum(p[i][0] for i in (5, 9, 13, 17)) / 4, sum(p[i][1] for i in (5, 9, 13, 17)) / 4),
         "tip": (p[8][0], p[8][1]),           # index fingertip: the pointer in two-hand mode
         "tip_y": p[8][1],
     }
@@ -130,6 +133,30 @@ class OneEuro:
         return self.x
 
 
+class HandSmoother:
+    """MediaPipe Hands doesn't smooth its landmarks, so pinch distances and poses flicker.
+    One Euro on every landmark, per hand (a hand is followed by its wrist): steady at rest,
+    no lag in motion. A hand that drops out for a moment keeps its filters."""
+
+    def __init__(self, min_cutoff=4.0, beta=40.0):
+        self.mc, self.beta, self.slots = min_cutoff, beta, []
+
+    def __call__(self, hands, t):
+        free = [s for s in self.slots if t - s["t"] < 0.3]
+        used, out = [], []
+        for p in hands:
+            s = min(free, key=lambda s: _d(s["w"], p[0]), default=None)
+            if s is not None and _d(s["w"], p[0]) < 0.25:
+                free.remove(s)
+            else:
+                s = {"f": [OneEuro(self.mc, self.beta) for _ in range(42)]}
+            s["w"], s["t"] = p[0], t
+            out.append([(s["f"][2 * i](x, t), s["f"][2 * i + 1](y, t)) for i, (x, y) in enumerate(p)])
+            used.append(s)
+        self.slots = used + free
+        return out
+
+
 # ---------- built-in gestures ----------
 
 class Gestures:
@@ -147,7 +174,9 @@ class Gestures:
         self.pinch_at = None  # when the current pinch started: quick release = click, held = drag
         self.touch = False  # both hands pinched: a two-finger touch is in progress
         self.block_click = False  # after a touch ends, the click hand must open before it clicks again
+        self.lost_at = None  # when the pointer hand went out of view
 
+    LOST_GRACE = 0.15  # the tracker drops a hand for a frame or two now and then: hold on that long
     DEBOUNCE = 0.08  # a pinch must hold this long (2-3 frames) before it counts: no flicker clicks
 
     def held(self, key, cond, now):
@@ -178,10 +207,15 @@ class Gestures:
         click hand dropped out for a moment; keep moving with the fingertip, no clicks."""
         out = []
         if p is None:
+            if self.lost_at is None:
+                self.lost_at = now
+            if (self.down or self.touch) and now - self.lost_at < self.LOST_GRACE:
+                return [("touch_hold",)] if self.touch else []  # a dropped frame never drops what you hold
             out = self.release()
             self.palm_since = None
             self.mode = "paused" if self.paused else "nohand"
             return out
+        self.lost_at = None
         h = read_hand(p)
         f = h["fingers"]
         two = click_p is not None if two is None else two
@@ -247,12 +281,11 @@ class Gestures:
             return out
         self.scroll_y = None
 
-        # closing a pinch drags the fingertips, so the cursor holds still while a click forms
-        # and briefly after press / release; a held pinch that moves on is a drag
+        # one hand: the knuckles steer (pinching doesn't move them), and the cursor holds still
+        # for a moment after press / release; a held pinch that moves on is a drag
         clicks = self.on("click") or self.on("drag")
-        forming = not two and clicks and not self.down and h["pinch"] < off
-        if self.on("move") and not forming and (two or now >= self.freeze_until):
-            out.append(("move",) + (h["tip"] if two else h["point"]))
+        if self.on("move") and (two or now >= self.freeze_until):
+            out.append(("move",) + (h["tip"] if two else h["palm"]))
         if c is None:  # click hand briefly lost: hold the button state as it is
             self.mode = "drag" if self.down else "move"
             return out
@@ -415,10 +448,22 @@ class Game:
         self.fx, self.fy = OneEuro(1.0, 4.0), OneEuro(1.0, 4.0)
         self.prev = None
         self.rem = [0.0, 0.0]
+        self.seen = {}
 
-    def stick(self, p, dead):
+    GRACE = 0.15  # a hand the tracker drops for a frame or two keeps its keys down that long
+
+    def _lost(self, key, p, now):
+        """True while a hand that just vanished still counts as there."""
+        if p is not None:
+            self.seen[key] = now
+            return False
+        return now is not None and self.seen.get(key) is not None and now - self.seen[key] < self.GRACE
+
+    def stick(self, p, dead, now=None):
         """-> set of 'up' / 'down' / 'left' / 'right'. dead: deadzone in hand sizes;
         a held direction lets go only at 70% of it, so the edge never stutters."""
+        if self._lost("dir", p, now):
+            return set(self.dirs)
         if p is None:
             self.center, self.dirs = None, set()
             return set()
@@ -434,8 +479,10 @@ class Game:
         self.dirs = out
         return set(out)
 
-    def pinches(self, side, p, on, off):
+    def pinches(self, side, p, on, off, now=None):
         """-> {'pinch', 'rpinch'} held on this hand, with press / release hysteresis."""
+        if self._lost(side, p, now):
+            return set(self.pin.get(side, ()))
         if p is None:
             self.pin[side] = set()
             return set()
@@ -522,7 +569,8 @@ def selftest():
     # click and drag are separate: a quick pinch is one click with no button held
     gc = Gestures({"pinch": 0.3, "drag_hold": 0.35})
     assert not {"down", "click"} & set(kinds(gc.step(pinched, 0.1))), "one noisy frame never clicks"
-    assert kinds(gc.step(pinched, 0.2)) == [], "pinch registered; nothing fires before release"
+    assert kinds(gc.step(pinched, 0.2)) == ["move"], "pinch registered; nothing fires before release"
+    assert read_hand(point)["palm"] == read_hand(pinched)["palm"], "pinching never moves the aim point"
     acts = hold(gc, point, 0.3)
     assert acts.count("click") == 1 and "down" not in acts and not gc.down, acts
     # a held pinch drags: button down after drag_hold, up when the pinch opens
@@ -553,7 +601,8 @@ def selftest():
     assert ("resume",) in g.step(hand(), 4.1) and not g.paused
     hold(g, pinched, 5.0)
     assert "down" in kinds(g.step(pinched, 5.5))
-    assert g.step(None, 5.6) == [("up",)]
+    assert g.step(None, 5.6) == [] and g.down, "a dropped frame never drops the drag"
+    assert g.step(None, 5.8) == [("up",)], "hand really gone: let go"
     # right click: a held pinch fires once
     g4 = Gestures({"pinch": 0.3})
     rp = hand((True, True, False, False), thumb_to=12)
@@ -640,7 +689,8 @@ def selftest():
     assert hold(gt, point, 2.0, pinched) == ["move", "move"] and gt.pinch_at is not None, "re-armed after opening"
     gt2 = Gestures({"pinch": 0.3})
     hold(gt2, pinched, 0.0, pinched)
-    assert gt2.step(None, 0.3) == [("touch_up",)], "hands gone: fingers lift"
+    assert gt2.step(None, 0.3) == [("touch_hold",)], "a dropped frame keeps the fingers down"
+    assert gt2.step(None, 0.5) == [("touch_up",)], "hands gone: fingers lift"
     assert "touch_down" not in hold(Gestures({"pinch": 0.3, "builtins": {"pinch2": False}}), pinched, 0, pinched)
     # touch geometry: starts TOUCH_GAP apart on the cursor, spreads, turns and pans with the hands
     A = {"cx": 500, "cy": 400, "mx": 0.5, "my": 0.5, "len0": 0.2 * 640, "kx": 1000, "ky": 1000}
@@ -667,6 +717,13 @@ def selftest():
     assert gm.stick(shift(rest, 0.04, 0), 0.35) == set()
     assert gm.stick(shift(rest, -0.1, 0.1), 0.35) == {"left", "down"}, "diagonals hold two keys"
     assert gm.stick(None, 0.35) == set() and gm.center is None, "hand gone: keys up, recenter next time"
+    gm.stick(rest, 0.35, 1.0)
+    assert gm.stick(shift(rest, 0.1, 0), 0.35, 1.03) == {"right"}
+    assert gm.stick(None, 0.35, 1.1) == {"right"} and gm.center is not None, "a dropped frame keeps walking"
+    assert gm.stick(None, 0.35, 1.3) == set() and gm.center is None
+    assert gm.pinches("look", pinched, 0.3, 0.48, 1.0) == {"pinch"}
+    assert gm.pinches("look", None, 0.3, 0.48, 1.05) == {"pinch"}, "a dropped frame keeps the button down"
+    assert gm.pinches("look", None, 0.3, 0.48, 1.3) == set()
     assert gm.pinches("look", pinched, 0.3, 0.48) == {"pinch"}
     assert gm.pinches("look", point, 0.3, 0.48) == set()
     assert gm.look(rest, 0.0, 4000) == (0, 0)
@@ -708,6 +765,65 @@ def selftest():
     ok2, f2, n2 = lf.read(n1)
     lf.close()
     assert ok and ok2 and f2 > f1 + 3, (f1, f2)
+    assert lf.seen_t > 0, "frames carry their arrival time"
+
+    # mover: the cursor glides between camera frames, leads a moving hand, never passes a still one
+    sent, rels = [], []
+    mv = Mover(lambda x, y: sent.append((x, y)), lambda dx, dy: rels.append((dx, dy)), start=False)
+    mv.aim(100.0, 100.0, 0.0, 0.0)
+    mv.aim(133.0, 100.0, 0.033, 0.0)
+    for i in range(1, 9):
+        mv.tick(0.033 + i * 0.004, 0.004)
+    xs = [x for x, _ in sent]
+    assert len(xs) > 3 and xs == sorted(xs) and xs[-1] in (132, 133), xs
+    mv.aim(166.0, 100.0, 0.066, 1.0)  # still moving at 1000 px/s: lead it
+    for i in range(1, 9):
+        mv.tick(0.066 + i * 0.004, 0.004)
+    assert 166 < sent[-1][0] <= 166 + 33, sent[-1]
+    mv.aim(166.0, 100.0, 0.099, 1.0)  # stopped: settle on the point, no lead
+    for i in range(1, 12):
+        mv.tick(0.099 + i * 0.004, 0.004)
+    assert sent[-1] == (166, 100), sent[-1]
+    mv.idle()
+    n = len(sent)
+    mv.tick(0.2, 0.004)
+    assert len(sent) == n, "idle: the real mouse owns the cursor"
+    mv.push(10, -3)
+    for i in range(20):
+        mv.tick(0.3 + i * 0.004, 0.004)
+    assert len(rels) > 2 and (sum(r[0] for r in rels), sum(r[1] for r in rels)) == (10, -3), rels
+    # sticky pixel: resting between two pixels never flickers; touch fingers glide, then stop
+    mv.aim(200.5, 50.0, 0.5, 0.0)
+    mv.tick(0.504, 0.004)
+    n = len(sent)
+    for i, x in enumerate((200.4, 200.6, 200.45, 200.55)):
+        mv.aim(x, 50.0, 0.533 + i * 0.033, 0.0)
+        for j in range(8):
+            mv.tick(0.533 + i * 0.033 + j * 0.004, 0.004)
+    assert len(sent) == n, sent[n:]
+    fing = []
+    mt = Mover(lambda x, y: None, lambda dx, dy: None, fing.append, start=False)
+    mt.touch_to([(0, 0), (100, 0)])
+    mt.tick(1.0, 0.004)
+    mt.touch_to([(40, 0), (140, 0)])
+    for i in range(1, 30):
+        mt.tick(1.0 + i * 0.004, 0.004)
+    a = [f[0][0] for f in fing]
+    assert a[0] == 0 and a[-1] == 40 and a == sorted(a) and len(set(a)) > 4, a
+    mt.touch_off()
+    n = len(fing)
+    mt.tick(2.0, 0.004)
+    assert len(fing) == n
+    # landmark smoother: a shaking hand is steadied, a moving one is followed, two hands never mix
+    hs = HandSmoother()
+    base = hand()
+    outs = [hs([[(x + rnd.uniform(-0.004, 0.004), y + rnd.uniform(-0.004, 0.004)) for x, y in base]], i / 30)[0][8][0]
+            for i in range(60)]
+    assert max(outs[30:]) - min(outs[30:]) < 0.004, "smoothed landmark shakes less than the raw one"
+    far = [(x + 0.3, y) for x, y in base]
+    for i in range(60, 66):
+        two_out = hs([[(x + (i - 59) * 0.02, y) for x, y in base], far], i / 30)
+    assert abs(two_out[0][0][0] - (0.5 + 6 * 0.02)) < 0.02 and abs(two_out[1][0][0] - 0.8) < 1e-6, two_out[0][0]
     print("selftest ok")
 
 
@@ -804,6 +920,7 @@ class LatestFrame:
 
     def __init__(self, cap):
         self.cap, self.ok, self.frame, self.n, self.alive = cap, True, None, 0, True
+        self.t = self.seen_t = 0.0  # perf_counter time the newest / the last returned frame arrived
         self.cond = threading.Condition()
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
@@ -814,7 +931,7 @@ class LatestFrame:
             with self.cond:
                 self.ok = ok
                 if ok:
-                    self.frame, self.n = f, self.n + 1
+                    self.frame, self.n, self.t = f, self.n + 1, time.perf_counter()
                 self.cond.notify_all()
             if not ok:
                 time.sleep(0.05)
@@ -824,12 +941,131 @@ class LatestFrame:
         with self.cond:
             self.cond.wait_for(lambda: self.n != seen or not self.ok or not self.alive, timeout=1.0)
             fresh = self.n != seen
+            self.seen_t = self.t
             return fresh, self.frame if fresh else None, self.n
 
     def close(self):
         self.alive = False
         self.thread.join(timeout=2)
         self.cap.release()
+
+
+def glide(pos, target, vel, age, dt, predict, tau=0.008):
+    """One output tick between camera frames: aim a little ahead of the last measured point
+    (its speed * its age * predict), then ease toward that. predict 0 = no lead. -> new pos"""
+    lead = min(max(age, 0.0), 0.05) * predict
+    k = 1.0 - math.exp(-dt / tau)
+    return (pos[0] + (target[0] + vel[0] * lead - pos[0]) * k,
+            pos[1] + (target[1] + vel[1] * lead - pos[1]) * k)
+
+
+class Mover:
+    """The camera gives 30-60 points a second. This thread sends the cursor (and the game camera)
+    ~240 times a second in between, so motion is smooth and slightly ahead instead of stepping.
+    set_pos(x, y) = absolute cursor, move_rel(dx, dy) = relative mouse (game look)."""
+
+    def __init__(self, set_pos, move_rel, move_touch=None, hz=240, start=True):
+        self.set_pos, self.move_rel, self.move_touch, self.dt = set_pos, move_rel, move_touch, 1.0 / hz
+        self.lock, self.out = threading.Lock(), threading.Lock()
+        self.t_target = self.t_pos = self.t_sent = None  # the two touch fingers
+        self.t_at = 0.0
+        self.target = self.pos = self.sent = None
+        self.vel, self.t, self.predict = (0.0, 0.0), 0.0, 0.5
+        self.owed = [0.0, 0.0]
+        self.ticks, self.alive = 0, True
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        if start:
+            self.thread.start()
+
+    def aim(self, x, y, t, predict=0.5):
+        """A new measured cursor point in pixels, seen at perf_counter time t."""
+        with self.lock:
+            if self.target is not None and 0 < t - self.t < 0.2:
+                self.vel = ((x - self.target[0]) / (t - self.t), (y - self.target[1]) / (t - self.t))
+            else:
+                self.vel = (0.0, 0.0)
+            if self.pos is None:
+                self.pos = (x, y)
+            self.target, self.t, self.predict = (x, y), t, predict
+
+    def idle(self):
+        """Nothing is steering the cursor this frame: leave it alone (the real mouse owns it)."""
+        with self.lock:
+            self.target = self.pos = self.sent = None
+
+    def push(self, dx, dy):
+        """Relative mouse movement to send, spread over the next few ticks."""
+        with self.lock:
+            self.owed[0] += dx
+            self.owed[1] += dy
+
+    def drop(self):
+        with self.lock:
+            self.owed = [0.0, 0.0]
+
+    def touch_to(self, pts):
+        """Where the two touch fingers should be (screen px); they glide there."""
+        with self.lock:
+            self.t_target = [tuple(q) for q in pts]
+            if self.t_pos is None:
+                self.t_pos = list(self.t_target)
+
+    def touch_off(self):
+        """Stop sending touch moves. Returns only once no move is in flight."""
+        with self.out:
+            with self.lock:
+                self.t_target = self.t_pos = self.t_sent = None
+
+    def tick(self, now, dt):
+        with self.out:
+            self._tick(now, dt)
+
+    def _tick(self, now, dt):
+        with self.lock:
+            self.ticks += 1
+            out = rel = fingers = None
+            if self.t_target is not None:
+                k = 1.0 - math.exp(-dt / 0.012)
+                self.t_pos = [(a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k)
+                              for a, b in zip(self.t_pos, self.t_target)]
+                f = [(int(round(x)), int(round(y))) for x, y in self.t_pos]
+                if f != self.t_sent or now - self.t_at > 0.05:  # Windows drops contacts that go quiet
+                    self.t_sent, self.t_at, fingers = f, now, f
+            if self.target is not None:
+                self.pos = glide(self.pos, self.target, self.vel, now - self.t, dt, self.predict)
+                p = (int(round(self.pos[0])), int(round(self.pos[1])))
+                # sticky pixel: a point resting between two pixels must not flicker between them
+                if self.sent is None or max(abs(self.pos[0] - self.sent[0]), abs(self.pos[1] - self.sent[1])) >= 0.75:
+                    self.sent = out = p
+            if self.owed[0] or self.owed[1]:
+                k = 1.0 - math.exp(-dt / 0.008)
+                step = []
+                for i in (0, 1):
+                    s = self.owed[i] * k
+                    m = int(s) if abs(s) >= 1 else int(self.owed[i])  # the last pixels go out whole
+                    self.owed[i] -= m
+                    step.append(m)
+                if step[0] or step[1]:
+                    rel = step
+        if out:
+            self.set_pos(*out)
+        if rel:
+            self.move_rel(*rel)
+        if fingers and self.move_touch:
+            self.move_touch(fingers)
+
+    def _run(self):
+        last = time.perf_counter()
+        while self.alive:
+            time.sleep(self.dt)
+            now = time.perf_counter()
+            self.tick(now, now - last)
+            last = now
+
+    def close(self):
+        self.alive = False
+        if self.thread.is_alive():
+            self.thread.join(timeout=1)
 
 
 class Overlay:
@@ -887,6 +1123,14 @@ def main(folder, parent):
 
     user32 = ctypes.windll.user32
     user32.SetProcessDPIAware()
+    try:  # 1 ms sleeps (the 240 Hz cursor thread needs them) and a step above normal priority
+        ctypes.windll.winmm.timeBeginPeriod(1)
+        k32 = ctypes.windll.kernel32
+        k32.GetCurrentProcess.restype = ctypes.c_void_p
+        k32.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+        k32.SetPriorityClass(k32.GetCurrentProcess(), 0x8000)
+    except Exception:
+        pass
     sw, sh = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)  # ponytail: primary monitor only
     P = lambda name: os.path.join(folder, name)
 
@@ -952,6 +1196,7 @@ def main(folder, parent):
             if a[0] == "up":
                 user32.mouse_event(LEFTUP, 0, 0, 0, 0)
             elif a[0] == "touch_up":
+                mover.touch_off()
                 touch.up()
 
     held_gesture = {}  # a custom gesture holding its keys down while the pose lasts: {id, keys}
@@ -1002,7 +1247,20 @@ def main(folder, parent):
                 if "Windows Virtual Camera" in cam_name else
                 " Start the app that feeds it (OBS, Quest Link…) or pick another camera in Settings.")
         return f"'{cam_name}' isn't sending a picture.{hint}"
-    def open_camera():
+    def go_fast(c):
+        """Ask a real webcam for 640x480 MJPG at 60 fps: twice the points, half the wait. -> still has a picture"""
+        c.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        c.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        c.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        c.set(cv2.CAP_PROP_FPS, 60)
+        t0 = time.time()
+        while time.time() - t0 < 1.5:
+            if c.read()[0]:
+                return True
+            time.sleep(0.03)
+        return False
+
+    def open_camera(fast):
         # Media Foundation first (what Chrome uses; the only path that gets a picture from
         # Phone Link / Windows Virtual Camera), DirectShow as the fallback.
         for api in (cv2.CAP_MSMF, cv2.CAP_DSHOW):
@@ -1013,12 +1271,19 @@ def main(folder, parent):
             t0 = time.time()
             while c.isOpened() and time.time() - t0 < 3:
                 if c.read()[0]:
-                    return c, "Media Foundation" if api == cv2.CAP_MSMF else "DirectShow"
+                    name = "Media Foundation" if api == cv2.CAP_MSMF else "DirectShow"
+                    if not fast:
+                        return c, name
+                    if go_fast(c):
+                        return c, name + ", 60 fps asked"
+                    c.release()  # the camera lost its picture in that mode: open it plain
+                    return open_camera(False)
                 time.sleep(0.05)
             c.release()
         return cv2.VideoCapture(cam_index, cv2.CAP_DSHOW), "DirectShow"  # opens; loop reports no picture
 
-    cap, cam_api = open_camera()
+    # virtual cameras (phone, OBS, headsets) are left as they are: changing their mode can drop the stream
+    cap, cam_api = open_camera(bool(cfg.get("fast_camera", True)) and not cfg.get("camera_virtual", True))
     if not cap.isOpened():
         write_atomic(P("status.json"), json.dumps({"mode": "error", "error": f"'{cam_name}' did not open. Another app may be using it, or pick another camera in Settings."}))
         sys.exit(2)
@@ -1030,6 +1295,12 @@ def main(folder, parent):
     gest = Gestures(cfg)
     matcher = Matcher(cfg.get("gestures"))
     touch = Touch(user32)
+    smooth = HandSmoother()
+    mover = Mover(lambda x, y: user32.SetCursorPos(x, y),
+                  lambda dx, dy: user32.mouse_event(1, dx, dy, 0, 0),  # relative: works with locked game cursors
+                  lambda pts: touch.move(pts))
+    ms = hz = 0.0
+    hz_ticks = 0
     touch_anchor = {}
     tf = [OneEuro() for _ in range(4)]  # the two touch points, x / y each
     game = cfg_game = bool(cfg.get("game_mode"))
@@ -1053,6 +1324,7 @@ def main(folder, parent):
         undo(gest.release())
         release_game_keys()
         gm.reset()
+        mover.drop()
         event(("Game mode on" if on else "Game mode off") + why)
     def make_overlay():
         try:
@@ -1123,6 +1395,8 @@ def main(folder, parent):
                 time.sleep(0.05)
                 continue
             bad_since = None
+            ft = grab.seen_t  # when this frame arrived (perf_counter): what the filters and the glide run on
+            aimed = False
             # a virtual camera that isn't connected (phone, OBS, headset) sends black placeholder frames
             if float(frame[::8, ::8].mean()) < 14:
                 dark_since = dark_since or now
@@ -1137,7 +1411,7 @@ def main(folder, parent):
             lms = list(res.multi_hand_landmarks or [])[:2]
             lm = lms[0] if lms else None
             # left to right on screen (the image is mirrored, so screen right = your right hand)
-            seen_hands = sorted(([(q.x, q.y) for q in l.landmark] for l in lms), key=lambda p: p[0][0])
+            seen_hands = sorted(smooth([[(q.x, q.y) for q in l.landmark] for l in lms], ft), key=lambda p: p[0][0])
             ptr_right = cfg.get("pointer_hand", "right") != "left"
             if cfg.get("two_hands", True):
                 pts, click_pts, two = assign_hands(seen_hands, ptr_right, roles, now)
@@ -1203,9 +1477,9 @@ def main(folder, parent):
                         look_p, stick_p = (one, None) if is_look else (None, one)
                     keys = {**GAME_KEYS, **(cfg.get("game_keys") or {})}
                     on_p = float(cfg.get("pinch", 0.35))
-                    names = ([d for d in gm.stick(stick_p, float(cfg.get("stick_dead", 0.35)))]
-                             + list(gm.pinches("stick", stick_p, on_p, on_p * 1.6))
-                             + ["look_" + k for k in gm.pinches("look", look_p, on_p, on_p * 1.6)])
+                    names = ([d for d in gm.stick(stick_p, float(cfg.get("stick_dead", 0.35)), now)]
+                             + list(gm.pinches("stick", stick_p, on_p, on_p * 1.6, now))
+                             + ["look_" + k for k in gm.pinches("look", look_p, on_p, on_p * 1.6, now)])
                     want = {keys.get(n) for n in names} - {"", None}
                     for k in sorted(game_held - want) + sorted(want - game_held):
                         try:
@@ -1215,9 +1489,9 @@ def main(folder, parent):
                             want.discard(k)
                     game_held.clear()
                     game_held.update(want)
-                    mx, my = gm.look(look_p, now, float(cfg.get("look_speed", 4)) * sw * 0.4)
+                    mx, my = gm.look(look_p, ft, float(cfg.get("look_speed", 4)) * sw * 0.4)
                     if mx or my:
-                        user32.mouse_event(1, mx, my, 0, 0)  # relative move: works with locked game cursors
+                        mover.push(mx, my)  # sent as many small steps: a smooth camera, not 30 jumps a second
                 elif hit and not gest.paused:
                     undo(gest.release())
                     mode = "gesture"
@@ -1232,7 +1506,8 @@ def main(folder, parent):
                             ny = min(1.0, max(0.0, (act[2] - m) / (1 - 2 * m)))
                             # smoothing 0 -> 3.3 Hz (raw-ish), 0.95 -> 0.45 Hz (very steady)
                             fx.mc = fy.mc = 0.3 + (1.0 - min(0.95, max(0.0, float(cfg.get("smoothing", 0.5))))) * 3.0
-                            user32.SetCursorPos(int(fx(nx, now) * (sw - 1)), int(fy(ny, now) * (sh - 1)))
+                            mover.aim(fx(nx, ft) * (sw - 1), fy(ny, ft) * (sh - 1), ft, float(cfg.get("predict", 0.5)))
+                            aimed = True
                         elif kind == "touch_down":
                             pt = ctypes.wintypes.POINT()
                             user32.GetCursorPos(ctypes.byref(pt))
@@ -1240,26 +1515,28 @@ def main(folder, parent):
                             fh, fw = frame.shape[:2]
                             for f_ in tf:
                                 f_.reset()
-                            a = (tf[0](act[1][0], now), tf[1](act[1][1], now))
-                            b = (tf[2](act[2][0], now), tf[3](act[2][1], now))
+                            a = (tf[0](act[1][0], ft), tf[1](act[1][1], ft))
+                            b = (tf[2](act[2][0], ft), tf[3](act[2][1], ft))
                             touch_anchor.update(cx=pt.x, cy=pt.y, mx=(a[0] + b[0]) / 2, my=(a[1] + b[1]) / 2,
                                                 len0=math.hypot((b[0] - a[0]) * fw, (b[1] - a[1]) * fh),
                                                 kx=sw / (1 - 2 * m), ky=sh / (1 - 2 * m))
                             clamp = lambda q: (min(sw - 1, max(0, q[0])), min(sh - 1, max(0, q[1])))
-                            if touch.ok and touch.down([clamp(q) for q in touch_geometry(a, b, touch_anchor, fw, fh)]):
+                            pts0 = [clamp(q) for q in touch_geometry(a, b, touch_anchor, fw, fh)]
+                            if touch.ok and touch.down(pts0):
+                                mover.touch_to(pts0)
                                 event("Two-hand pinch: spread to resize, twist to rotate, move to pan")
                             else:
                                 event("Two-hand pinch: Windows refused touch input on this PC")
                         elif kind == "touch_move":
                             fh, fw = frame.shape[:2]
-                            a = (tf[0](act[1][0], now), tf[1](act[1][1], now))
-                            b = (tf[2](act[2][0], now), tf[3](act[2][1], now))
+                            a = (tf[0](act[1][0], ft), tf[1](act[1][1], ft))
+                            b = (tf[2](act[2][0], ft), tf[3](act[2][1], ft))
                             pts2 = [(min(sw - 1, max(0, q[0])), min(sh - 1, max(0, q[1])))
                                     for q in touch_geometry(a, b, touch_anchor, fw, fh)]
-                            touch.move(pts2)
-                        elif kind == "touch_hold":
-                            touch.move()  # injected contacts must keep updating or Windows drops them
+                            if touch.last is not None:
+                                mover.touch_to(pts2)  # the fingers glide there; the mover keeps them alive
                         elif kind == "touch_up":
+                            mover.touch_off()
                             touch.up()
                         elif kind == "click":
                             click(LEFTDOWN, LEFTUP)
@@ -1281,6 +1558,8 @@ def main(folder, parent):
             if lm is None:
                 fx.reset()
                 fy.reset()
+            if not aimed:
+                mover.idle()
             if overlay and game:
                 overlay.hide()  # a topmost ring would sit over a fullscreen game
             elif overlay:
@@ -1289,6 +1568,7 @@ def main(folder, parent):
                 overlay.show(pt.x, pt.y, mode)
             frames += 1
             if now - fps_t >= 1.0:
+                hz, hz_ticks = (mover.ticks - hz_ticks) / (now - fps_t), mover.ticks
                 fps, frames, fps_t = frames / (now - fps_t), 0, now
             if now - last_preview > 0.066:
                 on_pinch = float(cfg.get("pinch", 0.35)) * 1.4
@@ -1319,13 +1599,16 @@ def main(folder, parent):
                 st = {"mode": mode, "fps": round(fps, 1), "hand": lm is not None, "hands": len(lms), "two": two, "t": now,
                       "paused": gest.paused, "match": match_info, "events": list(events), "game": game,
                       "held": sorted(game_held) if game else [],
+                      "ms": round(ms, 1), "out_hz": round(hz),  # work per frame, cursor updates per second
                       "warning": no_picture(now - dark_since) if dark_since else ""}
                 if rec is not None:
                     st["record"] = {"id": rec["id"], "name": rec["name"], "phase": rec["phase"],
                                     "left": round(max(0.0, rec["until"] - now), 1), "samples": len(rec["samples"])}
                 write_atomic(P("status.json"), json.dumps(st))
                 last_status = now
+            ms += ((time.perf_counter() - ft) * 1000 - ms) * 0.1  # frame arrival -> everything sent, smoothed
     finally:
+        mover.close()
         if gest.down:
             user32.mouse_event(LEFTUP, 0, 0, 0, 0)
         touch.up()
