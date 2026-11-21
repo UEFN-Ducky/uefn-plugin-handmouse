@@ -4,24 +4,31 @@
   <meta charset="utf-8">
   <script src="../../_kit/ducky.js"></script>
   <style>
-    body { margin: 0; padding: 12px; }
-    .row { display: flex; align-items: center; gap: 8px; }
-    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+    html, body { margin: 0; background: transparent; }
+    #box { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+    .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
     .dot.on { background: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 25%, transparent); }
-    .t { font-weight: 600; flex: 1; }
-    .d { font-size: 12px; color: var(--muted); margin: 6px 0 10px; min-height: 16px; }
-    .btns { display: flex; gap: 8px; }
-    .btns button { flex: 1; }
+    .t { font-weight: 600; font-size: 13px; white-space: nowrap; }
+    .d { font-size: 12px; color: var(--muted); flex: 1; min-width: 0; text-align: right;
+         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .btns { display: flex; gap: 6px; }
+    .btns button { all: unset; box-sizing: border-box; flex: 1; height: 28px; padding: 0 10px;
+      display: inline-flex; align-items: center; justify-content: center; white-space: nowrap;
+      font-size: 12px; font-weight: 600; border-radius: 6px; cursor: pointer;
+      background: color-mix(in srgb, var(--fg) 6%, var(--card)); color: var(--fg); border: 1px solid var(--border); }
+    .btns button:hover:not(:disabled) { border-color: var(--accent); }
+    .btns button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+    .btns button:disabled { opacity: .5; cursor: default; }
     button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   </style>
 </head>
 <body class="dk-page">
   <div id="box">
-    <div class="row"><span class="dot" id="dot"></span><span class="t" id="title">Hand Mouse</span></div>
-    <div class="d" id="detail">Checking…</div>
+    <div class="row"><span class="dot" id="dot"></span><span class="t" id="title">Hand Mouse</span><span class="d" id="detail">Checking…</span></div>
     <div class="btns">
-      <button class="dk-btn dk-btn--primary" id="toggle" disabled>Start</button>
-      <button class="dk-btn" id="open">Open Hand Mouse</button>
+      <button class="primary" id="toggle" disabled>Start</button>
+      <button id="open" title="Open the Hand Mouse panel">Open panel</button>
     </div>
   </div>
   <script>
@@ -52,13 +59,14 @@
         S = s;
         const on = !!s.running;
         $("dot").classList.toggle("on", on);
-        $("title").textContent = on ? "Hand Mouse · running" : "Hand Mouse";
-        $("detail").textContent = s.error ? "Stopped with an error: open Hand Mouse."
+        const txt = s.error ? "Error: open panel"
           : s.warning ? s.warning
           : on ? `${LABEL[s.mode] || s.mode} · ${s.fps} fps`
-          : s.setup !== "ready" ? "Set up needed: open Hand Mouse." : "Stopped.";
+          : s.setup !== "ready" ? "Setup needed" : "Stopped";
+        $("detail").textContent = txt;
+        $("detail").title = txt;
         $("toggle").textContent = on ? "Stop" : "Start";
-        $("toggle").className = "dk-btn" + (on ? "" : " dk-btn--primary");
+        $("toggle").className = on ? "" : "primary";
         $("toggle").disabled = s.setup !== "ready";
         const dot = s.error ? "warn" : on ? "error" : "";  // "error" = the red dot
         if (dot !== lastDot) {
@@ -76,7 +84,7 @@
     };
     $("open").onclick = () => call("panel.open", { action: "panel:main" }).catch(() => {});
     window.addEventListener("DOMContentLoaded", () => {
-      call("header_menu_size", { height: document.getElementById("box").offsetHeight + 24 }).catch(() => {});
+      call("header_menu_size", { height: document.getElementById("box").offsetHeight }).catch(() => {});
       tick();
     });
   </script>
