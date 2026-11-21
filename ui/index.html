@@ -1,0 +1,1130 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="../../_kit/ducky.js"></script>
+  <style>
+    :root { --raised: color-mix(in srgb, var(--fg) 5%, var(--card)); --hover: color-mix(in srgb, var(--fg) 7%, transparent);
+            --on-accent: var(--bg); --ink: var(--bg);
+            --glass: color-mix(in srgb, var(--bg) 75%, transparent); --veil: color-mix(in srgb, var(--fg) 20%, transparent);
+            --shade: color-mix(in srgb, var(--bg) 70%, transparent); --mono: var(--font-mono, "JetBrains Mono", ui-monospace, monospace); }
+    [hidden] { display: none !important; }
+    * { box-sizing: border-box; }
+    /* ponytail: wipe the kit's button defaults (flex centering, min sizes) so every class below owns its look */
+    button { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+             cursor: pointer; font: inherit; color: inherit; line-height: 1.2; text-align: center; }
+    button:disabled { cursor: not-allowed; }
+    body { margin: 0; background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; }
+    button, input { font-family: inherit; }
+    button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes cd { 0% { transform: scale(1.6); opacity: 0 } 25% { transform: scale(1); opacity: 1 } 80% { opacity: 1 } 100% { transform: scale(.85); opacity: 0 } }
+    @keyframes toastIn { from { transform: translate(-50%, 12px); opacity: 0 } to { transform: translate(-50%, 0); opacity: 1 } }
+    @keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
+    @keyframes slideIn { from { transform: translateX(12px); opacity: 0 } to { transform: none; opacity: 1 } }
+
+    .wrap { max-width: 1400px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .run { height: 56px; padding: 0 28px; border-radius: 999px; border: none; font-size: 18px; font-weight: 800; cursor: pointer;
+           display: inline-flex; align-items: center; gap: 12px; transition: background .2s, transform .1s; }
+    .run:active { transform: scale(.97); }
+    .run:disabled { cursor: not-allowed; }
+    .run i { width: 16px; height: 16px; display: inline-block; background: currentColor; }
+    .chip { display: inline-flex; align-items: center; gap: 12px; height: 56px; padding: 0 24px 0 20px; border-radius: 999px;
+            background: color-mix(in srgb, var(--c) 16%, transparent); color: var(--tc, var(--c)); font-size: 20px; font-weight: 700;
+            letter-spacing: -.01em; white-space: nowrap; transition: background .3s, color .3s; }
+    .chip i { width: 14px; height: 14px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 5px color-mix(in srgb, var(--c) 25%, transparent); }
+    .fps { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; padding: 0 4px; }
+    .fps i { width: 8px; height: 8px; border-radius: 50%; }
+    .gear { width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--border); background: transparent; color: var(--fg);
+            cursor: pointer; display: grid; place-items: center; transition: background .2s; }
+    .gear.on { background: var(--raised); }
+    .gamebtn { height: 48px; padding: 0 10px 0 18px; border-radius: 999px; border: 1px solid var(--border); gap: 12px; font-size: 15px; font-weight: 700; transition: all .2s; }
+    .gamebtn.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+    .gamebtn small { font-weight: 500; color: var(--muted); font-size: 12px; }
+    .heldhud { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; padding: 8px 12px; border-radius: 999px; align-items: center; }
+    .slot { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-top: 1px solid var(--border); }
+    .slot .cap.sm { min-height: 44px; flex: 1; min-width: 0; }
+
+    .main { display: grid; grid-template-columns: minmax(0, 1fr) clamp(300px, 30vw, 380px); gap: 12px; align-items: stretch; }
+    .stage, .rail { height: clamp(440px, calc(100vh - 104px), 920px); }
+    @media (max-width: 779px) { .main { grid-template-columns: minmax(0, 1fr); } .rail { height: auto; } }
+    .stage { min-width: 0; position: relative; border-radius: 14px; overflow: hidden;
+             background: radial-gradient(ellipse at 38% 28%, color-mix(in srgb, var(--fg) 14%, var(--bg)) 0%, color-mix(in srgb, var(--fg) 5%, var(--bg)) 55%, var(--bg) 100%);
+             box-shadow: inset 0 0 0 4px var(--frame, var(--border)); transition: box-shadow .3s; }
+    .stage img { position: absolute; inset: 4px; width: calc(100% - 8px); height: calc(100% - 8px); object-fit: contain; transition: opacity .3s; }
+    .stage.paused img { opacity: .4; }
+    .ov { position: absolute; inset: 0; pointer-events: none; }
+    .ov > * { pointer-events: auto; }
+    .glass { background: var(--glass); backdrop-filter: blur(8px); color: var(--fg); }
+    .banner { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; align-items: center; gap: 12px;
+              padding: 10px 12px 10px 16px; border-radius: 999px; }
+    .banner .t { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .banner.warn { border-radius: 16px; white-space: normal; }
+    .banner.warn .t { white-space: normal; }
+    .recb { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border-radius: 999px; background: var(--red);
+            font-size: 13px; font-weight: 800; letter-spacing: .04em; }
+    .recb i { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); animation: pulse 1s infinite; }
+    .gbtn { height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--veil); background: transparent;
+            color: var(--fg); font-size: 13px; cursor: pointer; white-space: nowrap; }
+    .gbtn.solid { background: var(--accent); color: var(--on-accent); border: none; font-weight: 700; }
+    .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+              color: var(--fg); text-align: center; padding: 24px; pointer-events: none; }
+    .center > * { pointer-events: auto; }
+    .center .big { font-size: 28px; font-weight: 800; letter-spacing: -.02em; }
+    .center .sub { font-size: 15px; opacity: .7; }
+    .center .box { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 20px 32px; border-radius: 20px; }
+    .spinner { width: 44px; height: 44px; border-radius: 50%; border: 4px solid var(--veil); border-top-color: var(--fg); animation: spin .8s linear infinite; }
+    .startbig { margin-top: 6px; height: 60px; padding: 0 36px; border-radius: 999px; border: none; background: var(--accent); color: var(--on-accent);
+                font-size: 19px; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 12px; }
+    .startbig i, .play { width: 16px; height: 16px; background: currentColor; clip-path: polygon(10% 0, 100% 50%, 10% 100%); display: inline-block; }
+    .cdnum { font-size: 180px; font-weight: 800; line-height: 1; animation: cd 1s ease-out forwards; text-shadow: 0 4px 32px var(--shade); font-variant-numeric: tabular-nums; }
+    .hold { display: flex; flex-direction: column; align-items: center; gap: 14px; width: min(360px, 70%); padding: 20px 24px; border-radius: 16px; background: var(--glass); backdrop-filter: blur(6px); }
+    .hold b { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .bar { width: 100%; height: 12px; border-radius: 6px; background: var(--veil); overflow: hidden; }
+    .bar > span { display: block; height: 100%; border-radius: 6px; transition: width .15s linear; }
+    .match { position: absolute; left: 50%; bottom: 72px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px;
+             padding: 12px 20px; border-radius: 999px; white-space: nowrap; }
+    .match b { font-size: 20px; font-weight: 800; }
+    .match code { font-size: 15px; opacity: .75; font-family: var(--mono); }
+    .mini { width: 90px; height: 8px; border-radius: 4px; background: var(--veil); overflow: hidden; }
+    .mini > span { display: block; height: 100%; background: var(--purple); transition: width .2s; }
+    .ticker { position: absolute; left: 16px; bottom: 16px; right: 16px; display: flex; gap: 8px; overflow: hidden; pointer-events: none; }
+    .ticker span { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: 999px; background: var(--glass);
+                   backdrop-filter: blur(6px); color: var(--fg); font-size: 14px; font-weight: 600; white-space: nowrap; }
+    .ticker i { width: 8px; height: 8px; border-radius: 50%; }
+    .ticker small { font-weight: 400; opacity: .6; font-variant-numeric: tabular-nums; }
+    .modal { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--shade); overflow: auto; }
+    .card { width: min(560px, 100%); background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px;
+            display: flex; flex-direction: column; gap: 16px; color: var(--fg); max-height: 100%; overflow: auto; }
+    .card.bad { border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+    .card h2 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.01em; }
+    .muted { color: var(--muted); }
+    .small { font-size: 12px; } .s13 { font-size: 13px; } .s14 { font-size: 14px; }
+    pre.log { margin: 0; padding: 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); font-family: var(--mono);
+              font-size: 12px; line-height: 1.6; color: var(--muted); overflow: auto; max-height: 200px; white-space: pre-wrap; word-break: break-all; }
+    .err { padding: 12px 14px; border-radius: 10px; background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); font-size: 14px; font-weight: 500; line-height: 1.5; white-space: pre-wrap; }
+    .prog { height: 10px; border-radius: 5px; background: var(--raised); overflow: hidden; }
+    .prog > span { display: block; height: 100%; border-radius: 5px; transition: width .2s; }
+    .step { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 7px 0; }
+    .step .dot { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: var(--ink); border: 2px solid var(--border); }
+    .step .dot.done { border-color: var(--green); background: var(--green); }
+    .step .dot.error { border-color: var(--red); background: var(--red); }
+    .step .dot.active { border-color: var(--accent); }
+    .step .dot.active::after { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 30%, transparent); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+    .step .n { font-size: 15px; font-weight: 600; } .step .n.pending { color: var(--muted); }
+    .step .d { font-size: 12px; color: var(--muted); text-align: right; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pbtn { height: 52px; padding: 0 28px; border-radius: 999px; border: none; background: var(--accent); color: var(--on-accent); font-size: 17px; font-weight: 800; cursor: pointer; }
+    .pbtn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+    .obtn { height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 13px; cursor: pointer; }
+    .obtn:hover { color: var(--fg); }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+    /* rail */
+    .rail { min-width: 0; display: flex; flex-direction: column; }
+    .panel { flex: 1; min-height: 0; overflow-y: auto; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px;
+             display: flex; flex-direction: column; gap: 18px; animation: slideIn .2s ease-out; transition: border-color .25s, box-shadow .25s; }
+    .list { flex: 1; min-height: 0; background: var(--card); border: 1px solid var(--border); border-radius: 14px; display: flex; flex-direction: column; overflow: hidden; }
+    .list .head { padding: 16px 16px 8px; display: flex; align-items: baseline; justify-content: space-between; }
+    .list .head b, .phead b { font-size: 18px; font-weight: 800; }
+    .list .body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 8px; display: flex; flex-direction: column; gap: 2px; }
+    .sect { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 10px 8px 4px; }
+    .gi { display: flex; align-items: center; justify-content: flex-start; gap: 12px; padding: 8px; border: none; border-radius: 12px; background: transparent; color: var(--fg);
+          text-align: left; transition: all .25s; width: 100%; }
+    button.gi { cursor: pointer; } button.gi:hover { background: var(--hover); }
+    .gi.act { background: color-mix(in srgb, var(--c) 14%, transparent); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--c) 55%, transparent); }
+    .gi.off { opacity: .5; }
+    .ico { width: 44px; height: 44px; border-radius: 10px; background: var(--raised); display: grid; place-items: center; flex: none; }
+    .gi .nm { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .gi .ds { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .gi .ac { font-size: 12px; color: var(--purple); font-family: var(--mono); white-space: nowrap; }
+    .badge { font-size: 11px; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+    .thin { height: 4px; border-radius: 2px; background: var(--raised); overflow: hidden; }
+    .thin > span, .meter > span { display: block; height: 100%; background: var(--purple); transition: width .2s; }
+    .meter { height: 10px; border-radius: 5px; background: var(--raised); overflow: hidden; }
+    .meter > span { border-radius: 5px; }
+    .foot { padding: 12px; border-top: 1px solid var(--border); }
+    .newbtn { width: 100%; height: 52px; border-radius: 999px; border: 1px dashed color-mix(in srgb, var(--red) 60%, transparent);
+              background: color-mix(in srgb, var(--red) 8%, transparent); color: var(--fg); font-size: 16px; font-weight: 700; cursor: pointer;
+              display: flex; align-items: center; justify-content: center; gap: 10px; transition: background .2s; }
+    .newbtn:hover { background: color-mix(in srgb, var(--red) 14%, transparent); }
+    .newbtn i { width: 12px; height: 12px; border-radius: 50%; background: var(--red); }
+    .tog { width: 44px; height: 26px; border-radius: 999px; border: none; padding: 3px; background: var(--border); cursor: pointer; flex: none; transition: background .2s; }
+    .tog { position: relative; display: block; }
+    .tog span { position: absolute; left: 3px; top: 3px; display: block; width: 20px; height: 20px; border-radius: 50%; background: var(--fg); transition: transform .2s; box-shadow: 0 1px 3px var(--shade); }
+    .tog.on { background: var(--accent); } .tog.on span { transform: translateX(18px); background: var(--bg); }
+    .phead { display: flex; align-items: center; gap: 10px; }
+    .back { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border); background: transparent; color: var(--fg); font-size: 16px; cursor: pointer; flex: none; }
+    .h3 { font-size: 22px; font-weight: 800; letter-spacing: -.01em; }
+    .steps3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+    .steps3 button { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 0; border: none; background: none; text-align: left; color: var(--muted); font-size: 12px; font-weight: 700; }
+    .steps3 button span { display: block; width: 100%; height: 6px; border-radius: 3px; background: var(--border); transition: background .25s; }
+    .steps3 .done span { background: var(--green); } .steps3 .cur span { background: var(--accent); }
+    .steps3 .done, .steps3 .cur { color: var(--fg); } .steps3 .done { cursor: pointer; }
+    .tip { display: flex; gap: 10px; align-items: center; font-size: 14px; }
+    .tip b { width: 24px; height: 24px; border-radius: 50%; background: var(--raised); display: grid; place-items: center; font-size: 12px; color: var(--muted); flex: none; }
+    .okbox { display: flex; align-items: center; gap: 14px; padding: 12px; border-radius: 12px; background: color-mix(in srgb, var(--green) 10%, transparent);
+             border: 1px solid color-mix(in srgb, var(--green) 40%, transparent); }
+    .recbtn { height: 56px; border-radius: 999px; border: 1px solid transparent; background: var(--red); color: var(--ink); font-size: 18px; font-weight: 800; cursor: pointer;
+              display: flex; align-items: center; justify-content: center; gap: 12px; transition: background .2s; }
+    .recbtn.alt { background: var(--raised); color: var(--fg); border-color: var(--border); }
+    .recbtn i { width: 14px; height: 14px; border-radius: 50%; background: currentColor; }
+    .recbtn.alt i { background: var(--red); } .recbtn.stop i { border-radius: 3px; background: currentColor; }
+    .cap { min-height: 120px; padding: 16px; border-radius: 14px; border: 2px dashed var(--border); background: var(--raised); color: var(--fg);
+           display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; cursor: text; outline: none; transition: all .15s; width: 100%; }
+    .cap.live { border-color: var(--accent); }
+    .cap.has { border-style: solid; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
+    .cap.sm { min-height: 64px; padding: 10px; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+    .cap.sm:focus { border-color: var(--accent); border-style: solid; background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
+    .kc { min-width: 44px; height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); border-bottom-width: 3px; background: var(--card);
+          display: inline-grid; place-items: center; font-family: var(--mono); font-size: 15px; font-weight: 600; }
+    .kc.big { min-width: 48px; height: 48px; border-color: var(--accent); border-bottom-width: 4px; font-size: 18px; font-weight: 700; }
+    .kc.sm { min-width: 38px; height: 38px; font-size: 14px; }
+    .pill { height: 32px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--border); background: transparent; color: var(--fg); font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s; }
+    .pill.on { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--accent); color: var(--accent); }
+    .pill.big { height: 38px; padding: 0 14px; } .pill.raised { background: var(--raised); }
+    .pill.raised.on { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+    .pill:hover { border-color: var(--accent); }
+    .linkbtn { height: 32px; padding: 0 10px; border: none; background: transparent; color: var(--muted); font-size: 13px; cursor: pointer; }
+    .linkbtn:hover { color: var(--fg); } .linkbtn.del:hover { color: var(--red); }
+    .wide { height: 38px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: var(--fg); font-size: 13px; font-weight: 600; cursor: pointer; width: 100%; }
+    .wide:hover { background: var(--hover); }
+    .spec { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 12px; background: var(--raised); border: 1px solid var(--border); }
+    .grp { height: 28px; padding: 0 10px; border-radius: 999px; border: none; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+    .grp.on { background: var(--fg); color: var(--bg); }
+    .keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 4px; }
+    .keys button { min-height: 36px; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--fg); font-size: 12px; font-family: var(--mono); cursor: pointer; line-height: 1.2; }
+    .keys button:hover { border-color: var(--accent); }
+    .keys button.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+    .or { display: flex; align-items: center; gap: 10px; margin-top: 4px; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+    .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+    .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; padding: 4px; border-radius: 999px; background: var(--raised); border: 1px solid var(--border); }
+    .seg button { height: 36px; border-radius: 999px; border: none; background: transparent; color: var(--muted); font-size: 14px; font-weight: 600; cursor: pointer; transition: all .15s; }
+    .seg button.on { background: var(--fg); color: var(--bg); }
+    .field { height: 48px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--raised); color: var(--fg); font-size: 17px; font-weight: 600; outline: none; width: 100%; }
+    .field:focus { border-color: var(--accent); }
+    .title-in { flex: 1; min-width: 0; height: 40px; padding: 0 8px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--fg); font-size: 20px; font-weight: 800; outline: none; }
+    .title-in:hover { border-color: var(--border); } .title-in:focus { border-color: var(--accent); background: var(--raised); }
+    .sumbox { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 12px; border: 1px solid var(--border); }
+    .testbox { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 12px; background: var(--raised); }
+    .num { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .sb { display: flex; justify-content: space-between; align-items: baseline; }
+    .navrow { display: flex; gap: 8px; }
+    .navrow .obtn { height: 52px; padding: 0 20px; font-size: 16px; font-weight: 600; color: var(--fg); }
+    .navrow .pbtn { flex: 1; padding: 0; }
+    .delask { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--red) 10%, transparent); }
+    .delask span { flex: 1; font-size: 14px; font-weight: 600; color: var(--red); }
+    .delask button { height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--fg); font-size: 13px; cursor: pointer; }
+    .delask button.red { border: none; background: var(--red); color: var(--ink); font-weight: 700; }
+    .rerec { height: 52px; border-radius: 999px; border: none; background: var(--red); color: var(--ink); font-size: 17px; font-weight: 800; cursor: pointer;
+             display: flex; align-items: center; justify-content: center; gap: 10px; }
+    .rerec i { width: 14px; height: 14px; border-radius: 50%; background: var(--ink); }
+    /* sliders */
+    .sl { display: flex; flex-direction: column; gap: 2px; }
+    .sl .l { font-size: 13px; color: var(--muted); } .sl .l.b { font-size: 14px; font-weight: 600; color: var(--fg); }
+    .sl .box { position: relative; height: 40px; margin-top: 14px; }
+    .sl .trk { position: absolute; left: 10px; right: 10px; top: 18px; height: 4px; border-radius: 2px; background: var(--border); }
+    .sl .fill { position: absolute; left: 0; top: 0; height: 100%; background: var(--accent); border-radius: 2px; }
+    .sl .knob { position: absolute; top: -8px; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); transform: translateX(-50%);
+                box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+    .sl .bub { position: absolute; top: -38px; transform: translateX(-50%); padding: 2px 8px; border-radius: 6px; background: var(--fg); color: var(--bg);
+               font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .sl input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; margin: 0; }
+    .sl .ends { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+    .sep { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; border-top: 1px solid var(--border); }
+    .trow { display: flex; align-items: center; gap: 12px; }
+    .trow > div { flex: 1; } .trow .tt { font-size: 14px; font-weight: 600; } .trow .td { font-size: 12px; color: var(--muted); }
+    .legend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; transition: opacity .2s; }
+    .legend div { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .legend i { width: 20px; height: 20px; border-radius: 50%; border: 3px solid var(--c); flex: none; }
+    .dd { position: relative; }
+    .ddbtn { width: 100%; height: 46px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--raised); color: var(--fg); font-size: 15px;
+             display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; text-align: left; }
+    .ddbtn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ddmenu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+              padding: 4px; box-shadow: 0 12px 32px var(--shade); }
+    .ddmenu button { width: 100%; text-align: left; min-height: 40px; padding: 0 12px; border: none; border-radius: 8px; background: transparent; color: var(--fg);
+                     font-size: 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .ddmenu button:hover, .ddmenu button.on { background: var(--hover); }
+    .ddmenu button b { color: var(--accent); }
+    .ddmenu button.muted { color: var(--muted); }
+    .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 10px; padding: 16px 24px;
+             border-radius: 999px; background: var(--card); border: 1px solid var(--c); color: var(--fg); font-size: 17px; font-weight: 700;
+             box-shadow: 0 12px 32px var(--shade); animation: toastIn .25s ease-out; max-width: 90vw; }
+    .toast i { width: 12px; height: 12px; border-radius: 50%; background: var(--c); flex: none; }
+  </style>
+</head>
+<body data-live-view="handmouse:live">
+<div class="wrap">
+  <div class="top">
+    <button class="run" id="run" data-act="run" disabled><i id="runIcon"></i><span id="runLabel">Start</span></button>
+    <div class="chip" id="chip" style="--c:var(--muted);--tc:var(--fg)"><i></i><span id="chipText">Loading…</span></div>
+    <div class="fps" id="fps" hidden><i id="handDot"></i><span id="fpsText"></span></div>
+    <div style="flex:1"></div>
+    <button class="gamebtn" id="gameBtn" data-act="game" title="Ctrl+Alt+G toggles it anywhere">Game mode <small>Ctrl+Alt+G</small><span class="tog" id="gameTog"><span></span></span></button>
+    <button class="gear" id="gear" data-act="settings" aria-label="Settings" title="Settings">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>
+    </button>
+  </div>
+  <div class="main">
+    <div class="stage" id="stage">
+      <img id="cam" alt="Camera preview" hidden>
+      <div class="ov" id="ov"></div>
+    </div>
+    <div class="rail" id="rail"></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+  // ---------- bridge ----------
+  const CHANNEL = "uefn-plugin-ui";
+  function call(method, params = {}) {
+    const id = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      function onMsg(ev) {
+        const d = ev.data;
+        if (!d || d.channel !== CHANNEL || d.id !== id) return;
+        window.removeEventListener("message", onMsg);
+        d.ok ? resolve(d.result) : reject(new Error(d.error || "bridge error"));
+      }
+      window.addEventListener("message", onMsg);
+      parent.postMessage({ channel: CHANNEL, id, method, params }, "*");
+    });
+  }
+  const rpc = (method, params = {}) => call("plugin.call", { method, params }).catch((e) => ({ ok: false, error: e.message }));
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const $ = (id) => document.getElementById(id);
+  const V = (k) => `var(--${k})`;
+  const cache = new WeakMap();
+  function setHTML(el, html) { if (cache.get(el) !== html) { cache.set(el, html); el.innerHTML = html; } }
+
+  // ---------- hand drawings ----------
+  const BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
+  const BASE = { i: [39, 52], m: [49, 49], r: [58, 51], p: [66, 56] }, LEN = { i: [13, 9, 8], m: [14, 10, 8], r: [13, 9, 7], p: [10, 7, 6] }, ANG = { i: -7, m: 0, r: 6, p: 13 };
+  function finger(b, ext, ang, L) {
+    const [bx, by] = b;
+    if (!ext) return [[bx, by], [bx - 1, by - 6], [bx + 2, by - 4], [bx + 2, by + 1]];
+    const o = [[bx, by]]; let x = bx, y = by; const a = ang * Math.PI / 180;
+    for (const l of L) { x += l * Math.sin(a); y -= l * Math.cos(a); o.push([x, y]); }
+    return o;
+  }
+  const POSES = { point: { i: 1 }, pinch: { pinch: "i" }, rpinch: { i: 1, pinch: "m" }, scroll: { i: 1, m: 1, ang: { i: -3, m: 3 } }, palm: { t: "ext", i: 1, m: 1, r: 1, p: 1 }, fist: {} };
+  function pose(name) {
+    const p = POSES[name] || {};
+    let th = p.t === "ext" ? [[43,80],[35,71],[29,64],[24,58]] : [[43,80],[37,71],[39,63],[45,61]];
+    const f = {};
+    for (const k of ["i", "m", "r", "p"]) f[k] = finger(BASE[k], p[k], p.ang && p.ang[k] !== undefined ? p.ang[k] : ANG[k], LEN[k]);
+    if (p.pinch === "i") { f.i = [[39,52],[35,40],[30,40],[28,47]]; th = [[43,80],[35,70],[30,59],[28,50]]; }
+    if (p.pinch === "m") { f.m = [[49,49],[46,37],[40,40],[36,48]]; th = [[43,80],[36,70],[34,59],[36,51]]; }
+    return [[52, 90], ...th, ...f.i, ...f.m, ...f.r, ...f.p];
+  }
+  // a recorded fingerprint: 20 landmarks relative to the wrist in hand-size units, middle knuckle at (0, -1)
+  function featPts(f, ox, oy, k) { const pts = [[ox, oy]]; for (let i = 0; i + 1 < 40; i += 2) pts.push([ox + f[i] * k, oy + f[i + 1] * k]); return pts; }
+  function bonesSvg(pts, color, w) {
+    return BONES.map(([a, b]) => `<line x1="${pts[a][0].toFixed(1)}" y1="${pts[a][1].toFixed(1)}" x2="${pts[b][0].toFixed(1)}" y2="${pts[b][1].toFixed(1)}" stroke="${color}" stroke-width="${w}" stroke-linecap="round"/>`).join("");
+  }
+  function handSvg(src, color, size, w = 3.2) {
+    let body;
+    if (Array.isArray(src) && src.length >= 80) body = bonesSvg(featPts(src.slice(0, 40), 34, 84, 14), color, w * .8) + bonesSvg(featPts(src.slice(40, 80), 68, 84, 14), color, w * .8);
+    else if (Array.isArray(src) && src.length >= 40) body = bonesSvg(featPts(src, 52, 86, 24), color, w);
+    else body = bonesSvg(pose(src || "fist"), color, w);
+    return `<svg viewBox="14 22 66 72" width="${size}" height="${Math.round(size * 1.08)}">${body}</svg>`;
+  }
+
+  // ---------- constants ----------
+  const MODES = {
+    move: ["Moving", "blue"], drag: ["Dragging", "green"], scroll: ["Scrolling", "amber"], gesture: ["Gesture", "purple"],
+    recording: ["Recording", "red"], paused: ["Paused", "muted"], nohand: ["No hand", "muted"], nocamera: ["No picture", "red"],
+    starting: ["Starting…", "yellow"], stopped: ["Stopped", "muted"], error: ["Error", "red"], notsetup: ["Not set up", "muted"],
+    installing: ["Setting up…", "muted"], setuperror: ["Setup error", "red"],
+    touch: ["Two-hand pinch", "yellow"], game: ["Game mode", "accent"],
+  };
+  const GAME_DEFAULT = { up: "w", down: "s", left: "a", right: "d", pinch: "space", rpinch: "shift", look_pinch: "lmb", look_rpinch: "rmb" };
+  // [slot, which hand, what you do]
+  const GAME_SLOTS = [["up", "stick", "Move hand up (forward)"], ["down", "stick", "Move hand down (back)"], ["left", "stick", "Move hand left"],
+    ["right", "stick", "Move hand right"], ["pinch", "stick", "Pinch"], ["rpinch", "stick", "Middle-finger pinch"],
+    ["look_pinch", "look", "Pinch"], ["look_rpinch", "look", "Middle-finger pinch"]];
+  const gameOn = () => (S && S.running ? !!S.game : !!(SET && SET.game_mode));
+  const gameKeys = () => ({ ...GAME_DEFAULT, ...((SET && SET.game_keys) || {}) });
+  // [settings key, pose, title, one-hand text, two-hand text ({P} moves, {C} clicks), color, mode that lights it]
+  const BUILTIN = [
+    ["move", "point", "Move cursor", "Point with your index finger", "{P} hand: point with your index finger", "blue", "move"],
+    ["click", "pinch", "Click", "Quick pinch thumb + index", "{C} hand: quick pinch thumb + index", "green", null],
+    ["drag", "pinch", "Drag", "Hold the pinch, then move", "{C} hand: hold the pinch, move with {P}", "green", "drag"],
+    ["right", "rpinch", "Right click", "Pinch thumb + middle", "{C} hand: pinch thumb + middle", "green", null],
+    ["scroll", "scroll", "Scroll", "Index + middle up, move hand", "{P} hand: index + middle up, move it", "amber", "scroll"],
+    ["palm", "palm", "Pause / resume", "Open palm for 1 s", "{P} hand: open palm for 1 s", "muted", "paused"],
+    ["pinch2", "pinch", "Pinch both hands", "Needs Two hands on (Settings)", "Both pinch: spread = resize, twist = rotate, move = pan", "yellow", "touch"],
+  ];
+  const ACTS = [["keys", "Keys"], ["click", "Click"], ["double_click", "Double click"], ["right_click", "Right click"], ["middle_click", "Middle click"], ["scroll", "Scroll"], ["pause", "Pause"], ["none", "None"]];
+  const ACT_LABEL = Object.fromEntries(ACTS);
+  const ACT_INFO = { click: ["Click", "Left click at the cursor"], double_click: ["Double click", "Two quick left clicks"], right_click: ["Right click", "Opens context menus"],
+    middle_click: ["Middle click", "Opens links in a new tab"], scroll: ["Scroll", "Scroll by a set amount"], pause: ["Pause", "Pause or resume Hand Mouse"], none: ["Nothing", "Just detect it"] };
+  const MODS = ["ctrl", "shift", "alt", "win"];
+  const SPECIAL = {
+    "Common": ["ctrl+tab", "ctrl+shift+tab", "alt+tab", "ctrl+w", "ctrl+z", "ctrl+c", "ctrl+v", "enter", "esc", "space"],
+    "F-keys": Array.from({ length: 24 }, (_, i) => "f" + (i + 1)),
+    "Arrows & nav": ["up", "down", "left", "right", "home", "end", "pgup", "pgdn", "insert", "delete"],
+    "Editing": ["tab", "enter", "esc", "space", "backspace", "capslock"],
+    "Media": ["playpause", "nexttrack", "prevtrack", "volumeup", "volumedown", "mute"],
+    "System": ["win", "printscreen", "pause", "scrolllock", "menu"],
+  };
+  // browser key codes -> the names the helper presses
+  const CODEMAP = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Escape: "esc", Enter: "enter", NumpadEnter: "enter", Space: "space",
+    Tab: "tab", Backspace: "backspace", Delete: "delete", Insert: "insert", Home: "home", End: "end", PageUp: "pgup", PageDown: "pgdn", PrintScreen: "printscreen",
+    Pause: "pause", ScrollLock: "scrolllock", CapsLock: "capslock", ContextMenu: "menu", Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]",
+    Backslash: "\\", Semicolon: ";", Quote: "'", Backquote: "`", Comma: ",", Period: ".", Slash: "/", ControlLeft: "ctrl", ControlRight: "ctrl",
+    ShiftLeft: "shift", ShiftRight: "shift", AltLeft: "alt", AltRight: "alt", MetaLeft: "win", MetaRight: "win", OSLeft: "win", OSRight: "win",
+    MediaPlayPause: "playpause", MediaTrackNext: "nexttrack", MediaTrackPrevious: "prevtrack", AudioVolumeUp: "volumeup", AudioVolumeDown: "volumedown", AudioVolumeMute: "mute" };
+  const KEYMAP = { MediaPlayPause: "playpause", MediaTrackNext: "nexttrack", MediaTrackPrevious: "prevtrack", AudioVolumeUp: "volumeup", AudioVolumeDown: "volumedown",
+    AudioVolumeMute: "mute", Control: "ctrl", Shift: "shift", Alt: "alt", Meta: "win", OS: "win" };
+  function keyName(e) {
+    const c = e.code || "";
+    if (CODEMAP[c]) return CODEMAP[c];
+    if (/^F\d+$/.test(c)) return c.toLowerCase();
+    if (c.startsWith("Key")) return c.slice(3).toLowerCase();
+    if (c.startsWith("Digit")) return c.slice(5);
+    if (/^Numpad\d$/.test(c)) return "num" + c.slice(6);
+    if (KEYMAP[e.key]) return KEYMAP[e.key];
+    if (/^F\d+$/.test(e.key)) return e.key.toLowerCase();
+    return (e.key || "").toLowerCase();
+  }
+  const PRETTY = { ctrl: "Ctrl", shift: "Shift", alt: "Alt", win: "Win", up: "↑", down: "↓", left: "←", right: "→", esc: "Esc", enter: "Enter", space: "Space", tab: "Tab",
+    backspace: "Backspace", delete: "Del", insert: "Ins", home: "Home", end: "End", pgup: "PgUp", pgdn: "PgDn", printscreen: "PrtSc", pause: "Pause",
+    scrolllock: "ScrLk", capslock: "Caps", menu: "Menu", lmb: "Mouse L", rmb: "Mouse R", mmb: "Mouse M", playpause: "Play/Pause", nexttrack: "Next", prevtrack: "Prev", volumeup: "Vol +", volumedown: "Vol −", mute: "Mute" };
+  const pretty = (k) => PRETTY[k] || (/^f\d+$/.test(k) ? k.toUpperCase() : /^num\d$/.test(k) ? "Num " + k.slice(3) : k.length === 1 ? k.toUpperCase() : k);
+  const prettyCombo = (s) => String(s || "").split("+").filter(Boolean).map(pretty).join("+");
+  const hasMainKey = (s) => String(s || "").split("+").some((k) => k && !MODS.includes(k));
+  function actionShort(a) {
+    if (!a || !a.type) return "none";
+    if (a.type === "keys") return (a.hold ? "hold " : "") + prettyCombo(a.keys);
+    if (a.type === "scroll") return "scroll " + (a.amount > 0 ? "+" : "") + a.amount;
+    return (ACT_LABEL[a.type] || a.type).toLowerCase();
+  }
+  const TOL = { Strict: 0.1, Normal: 0.2, Loose: 0.35 };
+  const TOL_HINT = { Strict: "Fewer accidents, needs a precise pose", Normal: "Good for most gestures", Loose: "Easier to trigger, may fire by accident" };
+
+  // ---------- state ----------
+  let S = null, G = [], BI = {}, SET = null, CAMS = [], camNote = "", image = "";
+  let panel = null, confirmDel = null, logOpen = false, ddOpen = false, visible = true, timer = null, lastRecordT = 0, recWas = false;
+  const NG0 = () => ({ step: 1, recId: null, rec: null, failed: false, action: null, keys: "", amt: 3, name: "", tol: "Normal", saved: false, hold: false });
+  let ng = NG0();
+  let insp = { keys: "", type: "none", hold: false };
+  const spec = { ng: { open: false, group: "F-keys" }, insp: { open: false, group: "F-keys" } };
+
+  function modeKey(s) {
+    if (!s) return "stopped";
+    if (s.error && !s.running) return "error";
+    if (s.running) return s.mode || "starting";
+    if (s.setup === "working") return "installing";
+    if (s.setup === "error") return "setuperror";
+    if (s.setup !== "ready") return "notsetup";
+    return "stopped";
+  }
+  function handsText(s) {
+    if (!s.running) return "";
+    if (s.two) return "Two hands: one moves, one clicks";
+    return s.hands > 1 ? "Two hands" : s.hand ? "Hand seen" : "No hand";
+  }
+  function builtinText(b) {
+    if (!SET || SET.two_hands === false) return b[3];
+    const P = SET.pointer_hand === "left" ? "Left" : "Right", C = P === "Left" ? "Right" : "Left";
+    return b[4].replace("{P}", P).replace("{C}", C);
+  }
+  function ago(t) {
+    const s = Math.max(0, Math.round(Date.now() / 1000 - t));
+    return s < 1 ? "now" : s < 60 ? s + "s" : s < 3600 ? Math.floor(s / 60) + "m" : Math.floor(s / 3600) + "h";
+  }
+  function evColor(t) {
+    t = t.toLowerCase();
+    if (t.includes("gesture")) return V("purple");
+    if (t.includes("scroll")) return V("amber");
+    if (/click|drop|mouse down|drag/.test(t)) return V("green");
+    if (/fail|error|isn't|stopped/.test(t)) return V("red");
+    if (/pause|cancel/.test(t)) return V("muted");
+    return V("blue");
+  }
+  let toastT = null;
+  function toast(t, c = V("green")) {
+    clearTimeout(toastT);
+    $("toast").innerHTML = `<div class="toast" style="--c:${c}"><i></i>${esc(t)}</div>`;
+    toastT = setTimeout(() => { $("toast").innerHTML = ""; }, 2800);
+  }
+  const fail = (out) => { if (out && out.ok === false) { toast(out.error || "Something went wrong", V("red")); return true; } return false; };
+
+  // ---------- top bar ----------
+  function renderTop() {
+    const s = S || {}, mk = modeKey(s);
+    const [label, col] = MODES[mk] || MODES.stopped;
+    const chipLabel = mk === "gesture" && s.match && s.match.name ? `Gesture: ${s.match.name}` : mk === "installing" ? `Setting up ${(s.setup_progress || {}).percent || 0}%` : label;
+    const chip = $("chip");
+    chip.style.setProperty("--c", V(col));
+    chip.style.setProperty("--tc", col === "muted" ? V("fg") : V(col));
+    chip.querySelector("i").style.animation = mk === "starting" || mk === "recording" ? "pulse 1s infinite" : "none";
+    $("chipText").textContent = chipLabel;
+    const run = $("run"), icon = $("runIcon");
+    if (s.running) {
+      run.disabled = false; run.style.background = "color-mix(in srgb, var(--red) 16%, transparent)"; run.style.color = V("red");
+      icon.style.clipPath = "none"; icon.style.borderRadius = "3px"; $("runLabel").textContent = "Stop";
+    } else {
+      const ready = s.setup === "ready";
+      run.disabled = !ready;
+      run.style.background = ready ? V("accent") : V("border"); run.style.color = ready ? V("on-accent") : V("muted");
+      icon.style.clipPath = "polygon(10% 0,100% 50%,10% 100%)"; icon.style.borderRadius = "0";
+      $("runLabel").textContent = ready ? "Start" : s.setup === "working" ? `Setting up ${(s.setup_progress || {}).percent || 0}%` : "Set up first";
+    }
+    $("fps").hidden = !s.running;
+    $("handDot").style.background = s.hand ? V("green") : V("muted");
+    $("fpsText").textContent = `${handsText(s)} · ${Math.round(s.fps || 0)} fps`;
+    $("gear").classList.toggle("on", panel === "settings");
+    const g = gameOn();
+    $("gameBtn").classList.toggle("on", g);
+    $("gameTog").classList.toggle("on", g);
+    $("gameBtn").setAttribute("aria-pressed", String(g));
+  }
+
+  // ---------- stage ----------
+  function setupCard(s) {
+    const p = s.setup_progress || {}, err = s.setup === "error", working = s.setup === "working";
+    const pct = Math.floor(p.percent || 0);
+    const steps = (p.steps || []).map((st) => {
+      const glyph = st.status === "done" ? "✓" : st.status === "error" ? "✕" : "";
+      return `<div class="step"><div class="dot ${esc(st.status)}">${glyph}</div><span class="n ${st.status === "pending" ? "pending" : ""}">${esc(st.label)}</span>
+        <span class="d" style="${st.status === "error" ? "color:var(--red)" : ""}">${esc(st.detail || "")}</span></div>`;
+    }).join("");
+    const log = (p.log || []).join("\n") || "No log yet.";
+    return `<div class="modal"><div class="card ${err ? "bad" : ""}">
+      <div class="row" style="align-items:flex-start;gap:16px;flex-wrap:nowrap"><div style="flex:1"><h2>${err ? "Setup didn't finish" : working ? "Setting up hand tracking" : "Set up hand tracking"}</h2>
+        <div class="muted s14" style="margin-top:4px">One-time setup · ~100 MB · a few minutes</div></div>
+        ${working || err ? `<span class="num" style="font-size:28px;color:${err ? V("red") : V("accent")}">${pct}%</span>` : ""}</div>
+      ${err ? `<div class="err">${esc(p.error || "Setup failed.")}</div>` : ""}
+      ${working || err ? `<div style="display:flex;flex-direction:column;gap:6px"><div class="prog"><span style="width:${pct}%;background:${err ? V("red") : V("accent")}"></span></div>
+        <div class="muted small" style="font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.detail || "")}</div></div>` : ""}
+      <div>${steps}</div>
+      <div class="row">${working ? "" : `<button class="pbtn" data-act="setup">${err ? "Retry" : "Set up"}</button>`}
+        <button class="obtn" data-act="log">${logOpen ? "Hide log" : "Show log"}</button></div>
+      ${logOpen || err ? `<pre class="log">${esc(log)}</pre>` : ""}
+    </div></div>`;
+  }
+  function renderStage() {
+    const s = S || {}, mk = modeKey(s);
+    const col = (MODES[mk] || MODES.stopped)[1];
+    const stage = $("stage");
+    stage.style.setProperty("--frame", s.running ? (mk === "paused" ? V("border") : V(col)) : mk === "error" || mk === "setuperror" ? V("red") : V("border"));
+    stage.classList.toggle("paused", mk === "paused");
+    const img = $("cam");
+    if (s.running && image) { if (img.src !== image) img.src = image; img.hidden = false; } else img.hidden = true;
+    const h = [];
+    const r = s.running ? s.record : null;
+    if (r) {
+      const counting = r.phase === "countdown";
+      h.push(`<div class="banner glass"><span class="recb"><i></i>REC</span><span class="t">Recording “${esc(r.name)}” · ${counting ? "get your pose ready" : "hold still"}</span>
+        <button class="gbtn" data-act="cancelRec">Cancel</button></div>`);
+      h.push(`<div class="center" style="pointer-events:none">${counting
+        ? (Math.ceil(r.left) > 0 ? `<div class="cdnum" data-n="${Math.ceil(r.left)}">${Math.ceil(r.left)}</div>` : "")
+        : `<div class="hold"><b>Hold it… ${r.left.toFixed(1)} s</b><div class="bar"><span style="width:${Math.round(100 * (1 - r.left / 2))}%;background:var(--red)"></span></div>
+           <span class="s13" style="opacity:.7">${r.samples} samples</span></div>`}</div>`);
+    } else if (s.running && s.warning) {
+      h.push(`<div class="banner glass warn"><span style="font-size:20px">📷</span><span class="t">${esc(s.warning)}</span>
+        ${/phone camera/i.test(s.warning) ? `<button class="gbtn solid" data-act="resetPhone">Reset phone camera</button>` : ""}
+        <button class="gbtn" data-act="camSettings">Change camera</button></div>`);
+    }
+    if (s.running && !r && s.game && (s.held || []).length) {
+      h.push(`<div class="heldhud glass"><span class="s13" style="opacity:.7">Holding</span>${s.held.map((k) => `<span class="kc sm">${esc(prettyCombo(k))}</span>`).join("")}</div>`);
+    }
+    if (s.running && !r && mk === "gesture" && s.match && s.match.name) {
+      const g = G.find((x) => x.id === s.match.id);
+      const pct = g ? Math.round(100 * Math.max(0, 1 - s.match.distance / (g.tolerance || 0.15))) : 100;
+      h.push(`<div class="match glass"><b>${esc(s.match.name)}</b><code>→ ${esc(g ? actionShort(g.action) : "")}</code>
+        <div class="mini"><span style="width:${pct}%"></span></div></div>`);
+    }
+    if (s.running && !r && mk === "paused") {
+      h.push(`<div class="center"><div class="box glass"><span class="big" style="font-size:30px">Paused</span><span class="sub">Open palm for ${SET ? SET.palm_hold : 1} s to resume</span></div></div>`);
+    }
+    if (!s.running && s.setup === "ready" && !s.error) {
+      h.push(`<div class="center"><div style="opacity:.55">${handSvg("palm", V("fg"), 130, 1.6)}</div><div class="big">Press Start, then raise your hand</div>
+        <div class="sub">Your webcam becomes a mouse</div><button class="startbig" data-act="run"><i></i>Start</button></div>`);
+    } else if (s.running && !image && !s.warning) {
+      h.push(`<div class="center"><span class="spinner"></span><div class="big">Opening camera…</div><div class="sub">Loading the hand tracker</div></div>`);
+    } else if (s.running && image && !r && mk === "nohand") {
+      h.push(`<div class="center"><div class="box glass"><span class="big">Raise your hand</span><span class="sub">Palm facing the camera</span></div></div>`);
+    }
+    if (s.error && !s.running) {
+      h.push(`<div class="modal"><div class="card bad"><div class="row" style="gap:12px"><span style="width:12px;height:12px;border-radius:50%;background:var(--red)"></span>
+        <span style="font-size:20px;font-weight:800">The hand tracker stopped</span></div>
+        <div class="muted s14">${esc(s.error.split("\n")[0])} Your gestures are safe.</div>
+        <pre class="log" style="max-height:150px">${esc(s.error.split("\n").slice(1).join("\n") || s.error)}</pre>
+        <div class="row"><button class="pbtn" data-act="run">Start again</button>${/phone camera|Virtual Camera/i.test(s.error) ? `<button class="obtn" data-act="resetPhone">Reset phone camera</button>` : ""}
+        <button class="obtn" data-act="camSettings">Change camera</button></div></div></div>`);
+    } else if (S && s.setup !== "ready") {
+      h.push(setupCard(s));
+    }
+    if (s.running && !r && (s.events || []).length) {
+      h.push(`<div class="ticker">${s.events.slice(0, 4).map((e, i) =>
+        `<span style="opacity:${Math.max(0.3, 1 - i * 0.22)}"><i style="background:${evColor(e.text)}"></i>${esc(e.text)}<small>${ago(e.t)}</small></span>`).join("")}</div>`);
+    }
+    setHTML($("ov"), h.join(""));
+  }
+
+  // ---------- rail: building blocks ----------
+  const SL = {};
+  function slider(key, label, v, min, max, step, fmt, lo, hi, save, bold = false) {
+    SL[key] = { min, max, fmt, save };
+    const p = ((v - min) / (max - min)) * 100;
+    return `<div class="sl" data-sl="${key}"><span class="l ${bold ? "b" : ""}">${esc(label)}</span>
+      <div class="box"><div class="trk"><div class="fill" style="width:${p}%"></div><div class="knob" style="left:${p}%"></div><div class="bub" style="left:${p}%">${esc(fmt(v))}</div></div>
+      <input type="range" min="${min}" max="${max}" step="${step}" value="${v}" data-slider="${key}" aria-label="${esc(label)}"></div>
+      <div class="ends"><span>${esc(lo)}</span><span>${esc(hi)}</span></div></div>`;
+  }
+  const tog = (act, on, label, v = "") => `<button class="tog ${on ? "on" : ""}" data-act="${act}" data-v="${esc(v)}" aria-label="${esc(label)}" aria-pressed="${on}"><span></span></button>`;
+  function recorder(scope, str, big) {
+    const parts = String(str || "").split("+").filter(Boolean), sp = spec[scope];
+    const caps = parts.map((k) => `<span class="kc ${big ? "big" : "sm"}">${esc(pretty(k))}</span>`).join("");
+    const has = parts.length > 0, live = scope === "ng" && ng.action === "keys" ? "has" : scope === "ng" && !ng.action ? "live" : "";
+    const box = big
+      ? `<button class="cap ${has && ng.action === "keys" ? "has" : live}" data-capture="${scope}">${has
+          ? `<div class="row" style="justify-content:center;gap:6px">${caps}</div><span class="muted s13">Press again to change</span>`
+          : `<span class="row" style="gap:6px;opacity:.45"><span class="kc">Ctrl</span><span class="kc">R</span></span><span class="muted" style="font-size:15px;font-weight:600">Listening… press keys</span>`}</button>`
+      : `<button class="cap sm" data-capture="${scope}">${has ? caps : `<span class="muted s14">Click here, then press the keys</span>`}</button>`;
+    const mods = MODS.map((m) => `<button class="pill ${parts.includes(m) ? "on" : ""}" data-act="mod" data-v="${scope}:${m}">${pretty(m)}</button>`).join("");
+    const groups = Object.keys(SPECIAL).map((g) => `<button class="grp ${sp.group === g ? "on" : ""}" data-act="grp" data-v="${scope}:${esc(g)}">${esc(g)}</button>`).join("");
+    const key = parts.find((p) => !MODS.includes(p)) || "";
+    const keys = SPECIAL[sp.group].map((k) => {
+      const combo = k.includes("+"), sel = combo ? str === k : key === k;
+      return `<button class="${sel ? "on" : ""}" data-act="pick" data-v="${scope}:${esc(k)}">${esc(combo ? prettyCombo(k) : pretty(k))}</button>`;
+    }).join("");
+    return `${box}
+      <div class="row" style="gap:6px">${mods}<div style="flex:1"></div>${has ? `<button class="linkbtn" data-act="clearKeys" data-v="${scope}">Clear</button>` : ""}</div>
+      <button class="wide" data-act="special" data-v="${scope}">${sp.open ? "Hide special keys" : "Special keys (F1–F24, media…)"}</button>
+      ${sp.open ? `<div class="spec"><div class="row" style="gap:4px">${groups}</div><div class="keys">${keys}</div></div>` : ""}`;
+  }
+
+  // ---------- rail: views ----------
+  function listView() {
+    const live = S && S.running && !S.record ? modeKey(S) : null;
+    const bi = BUILTIN.map((b) => {
+      const on = BI[b[0]] !== false, act = live && b[6] === live;
+      return `<div class="gi ${act ? "act" : ""} ${on ? "" : "off"}" data-b="${b[0]}" style="--c:${V(b[5])}">
+        <div class="ico">${handSvg(b[1], V(b[5]), 32)}</div>
+        <div style="flex:1;min-width:0"><div class="nm">${esc(b[2])}</div><div class="ds">${esc(builtinText(b))}</div></div>
+        ${tog("builtin", on, b[2], b[0])}</div>`;
+    }).join("");
+    const mine = G.filter((g) => !(panel === "new" && g.id === ng.recId));
+    const yours = mine.length ? mine.map((g) => `<button class="gi ${g.enabled === false ? "off" : ""}" data-act="open" data-v="${esc(g.id)}" data-g="${esc(g.id)}" style="--c:var(--purple)">
+        <div class="ico">${handSvg(g.icon, V("purple"), 32)}</div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px">
+          <div class="row" style="gap:8px;flex-wrap:nowrap;align-items:baseline"><span class="nm">${esc(g.name)}</span><span class="ac">${esc(actionShort(g.action))}</span>
+            ${g.hands > 1 ? `<span class="badge">2 hands</span>` : ""}</div>
+          <div class="thin"><span data-gm="${esc(g.id)}" style="width:0%"></span></div></div>
+        <span class="muted" style="font-size:18px">›</span></button>`).join("")
+      : `<div class="muted s14" style="padding:12px 8px;line-height:1.5">No gestures yet. Make a peace sign, a fist, thumbs up… and bind it to anything.</div>`;
+    const on = mine.filter((g) => g.enabled !== false).length;
+    return `<div class="list"><div class="head"><b>Gestures</b><span class="muted s13">${on} of yours on</span></div>
+      <div class="body">${gameRow()}<div class="sect">Built in${SET && SET.two_hands !== false ? " · two hands" : ""}</div>${bi}<div class="sect">Yours</div>${yours}</div>
+      <div class="foot"><button class="newbtn" data-act="new"><i></i>New gesture</button></div></div>`;
+  }
+
+  const holdRow = (act, on) => `<div class="trow"><div><div class="tt">Hold while posed</div>
+    <div class="td">For games: the key stays down as long as you hold the pose, instead of one tap</div></div>${tog(act, on, "Hold while posed")}</div>`;
+
+  function gameRow() {
+    const on = gameOn(), k = gameKeys();
+    const sum = [k.up, k.left, k.down, k.right].filter(Boolean).map(pretty).join(" ") + (k.pinch ? " · " + prettyCombo(k.pinch) : "") + (k.look_pinch ? " · " + prettyCombo(k.look_pinch) : "");
+    return `<div class="sect">Game mode · Ctrl+Alt+G</div>
+      <button class="gi ${on ? "act" : ""}" data-act="gamePanel" style="--c:var(--accent)">
+        <div class="ico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="${V("accent")}" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="7" width="20" height="11" rx="5"/><path d="M7 10.5v4M5 12.5h4"/><circle cx="15.5" cy="11.5" r="1"/><circle cx="18" cy="14" r="1"/></svg></div>
+        <div style="flex:1;min-width:0"><div class="nm">Game controls · ${on ? "On" : "Off"}</div><div class="ds">${esc(sum)}</div></div>
+        <span class="muted" style="font-size:18px">›</span></button>`;
+  }
+
+  function gameView() {
+    const v = SET || {}, k = gameKeys(), on = gameOn();
+    const P = v.pointer_hand === "left" ? "Left" : "Right", Sd = P === "Left" ? "Right" : "Left";
+    let last = "";
+    const rows = GAME_SLOTS.map(([slot, who, what]) => {
+      const hand = who === "stick" ? `${Sd} hand · moves you` : `${P} hand · camera`;
+      const head = hand !== last ? `<div class="sect" style="padding:14px 0 2px">${esc(hand)}</div>` : "";
+      last = hand;
+      const cur = k[slot] || "";
+      const caps = cur ? prettyCombo(cur).split("+").map((x) => `<span class="kc sm">${esc(x)}</span>`).join("") : `<span class="muted s13">Unbound</span>`;
+      const mouse = [["lmb", "L"], ["rmb", "R"], ["mmb", "M"], ["", "✕"]].map(([m, l]) =>
+        `<button class="pill ${cur === m && (m || !cur) ? "on" : ""}" data-act="gkSet" data-v="${slot}:${m}" title="${m ? PRETTY[m] : "Unbind"}" style="height:44px;min-width:40px">${l}</button>`).join("");
+      return `${head}<div class="slot"><span class="s14" style="font-weight:600">${esc(what)}</span>
+        <div class="row" style="gap:6px;flex-wrap:nowrap"><button class="cap sm" data-capture="gk:${slot}" title="Click, then press a key">${caps}</button>${mouse}</div></div>`;
+    }).join("");
+    return `<div class="panel" style="gap:16px">
+      <div class="phead"><button class="back" data-act="close" aria-label="Back">‹</button><b style="flex:1">Game controls</b>${tog("game", on, "Game mode")}</div>
+      <div class="muted s13" style="line-height:1.5">${esc(Sd)} hand is a thumbstick: where it first appears is the center, move it off-center to walk. Drop it out of view to re-center.
+        ${esc(P)} hand turns the camera like a mouse. Click a box and press any key to rebind, or pick a mouse button.</div>
+      ${slider("look_speed", "Camera speed", v.look_speed ?? 4, 1, 10, 0.5, (x) => x.toFixed(1), "Slow", "Fast", (x) => saveSettings({ look_speed: x }), true)}
+      ${slider("stick_dead", "Stick deadzone", v.stick_dead ?? 0.35, 0.15, 0.8, 0.05, (x) => x.toFixed(2), "Twitchy", "Relaxed", (x) => saveSettings({ stick_dead: x }), true)}
+      <div>${rows}</div>
+      <button class="wide" data-act="gkReset">Reset to W A S D</button>
+      <span class="muted small" style="line-height:1.5">Your own gestures still work in game mode: set one to <b>Keys</b> with <b>Hold while posed</b> to hold a key (reload, crouch, map…) as long as you hold the pose.</span>
+    </div>`;
+  }
+
+  function newView() {
+    const recNew = !!(S && S.record && S.record.id === ng.recId);
+    const canNext = ng.step === 1 ? !!ng.rec && !recNew : ng.step === 2 ? !!ng.action && (ng.action !== "keys" || hasMainKey(ng.keys)) : !!ng.name.trim();
+    const blocked = canNext ? "" : ng.step === 1 ? (recNew ? "Recording… watch the big preview" : "Record your pose to continue")
+      : ng.step === 2 ? (!ng.action ? "Press a key or shortcut, or pick a mouse action" : "Add a key, not just Ctrl/Shift/Alt/Win") : "Give it a name";
+    const steps = ["Pose", "Action", "Name & test"].map((l, i) => {
+      const n = i + 1;
+      return `<button class="${n < ng.step ? "done" : n === ng.step ? "cur" : ""}" data-act="ngStep" data-v="${n}"><span></span>${l}</button>`;
+    }).join("");
+    let body = "";
+    if (ng.step === 1) {
+      const g = G.find((x) => x.id === ng.recId);
+      body = `<div><div class="h3">Show your pose</div><div class="muted s14" style="margin-top:4px;line-height:1.5">Hold your hand up to the camera. We count 3·2·1, then capture it for 2 seconds. Show both hands for a two-hand gesture.</div></div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="tip"><b>1</b>Whole hand in view</div><div class="tip"><b>2</b>Different from the built-in gestures</div><div class="tip"><b>3</b>Keep still while it records</div></div>
+        ${ng.rec && !recNew ? `<div class="okbox"><div class="ico" style="width:56px;height:56px;border-radius:12px">${handSvg(g && g.icon, V("green"), 40, 3)}</div>
+          <div style="flex:1"><div style="font-size:16px;font-weight:700">Pose captured</div><div class="muted s13">${ng.rec.samples} samples${g && g.hands > 1 ? " · two hands" : ""} · press Next</div></div></div>` : ""}
+        ${ng.failed && !recNew ? `<div class="err">Hand not seen enough. Keep your whole hand in the preview and try again.</div>` : ""}
+        <button class="recbtn ${recNew ? "alt stop" : ng.rec ? "alt" : ""}" data-act="ngRecord"><i></i>${recNew ? "Cancel recording" : ng.rec ? "Record again" : "Record my pose"}</button>`;
+    } else if (ng.step === 2) {
+      const cards = ACTS.filter(([t]) => t !== "keys").map(([t]) =>
+        `<button class="pill big ${ng.action === t ? "on" : ""}" data-act="ngAction" data-v="${t}" title="${esc(ACT_INFO[t][1])}">${esc(ACT_INFO[t][0])}</button>`).join("");
+      body = `<div><div class="h3">What should it do?</div><div class="muted s14" style="margin-top:4px">Press any key or shortcut on your keyboard now.</div></div>
+        ${recorder("ng", ng.action === "keys" ? ng.keys : "", true)}
+        ${ng.action === "keys" ? holdRow("ngHold", ng.hold) : ""}
+        <div class="or">or a mouse action</div><div class="row" style="gap:6px">${cards}</div>
+        ${ng.action === "scroll" ? slider("ngAmt", "Scroll amount", ng.amt, -20, 20, 1, (v) => (v > 0 ? "+" : "") + v, "20 down", "20 up", (v) => { ng.amt = v; }) : ""}`;
+    } else {
+      const g = G.find((x) => x.id === ng.recId);
+      const act = ng.action === "keys" ? prettyCombo(ng.keys).split("+").join(" + ") : ng.action === "scroll" ? "scroll " + (ng.amt > 0 ? "+" : "") + ng.amt : (ACT_INFO[ng.action] || ["?"])[0].toLowerCase();
+      body = `<div class="h3">Name it and try it</div>
+        <div style="display:flex;flex-direction:column;gap:6px"><label class="muted s13" for="ngName">Name</label>
+          <input class="field" id="ngName" data-input="ngName" value="${esc(ng.name)}" placeholder="Rock on" maxlength="60"></div>
+        <div class="sumbox"><div class="ico" style="width:48px;height:48px">${handSvg(g && g.icon, V("purple"), 34, 3)}</div>
+          <span style="font-size:15px;font-weight:600;min-width:0;overflow-wrap:anywhere" id="ngSum">${esc((ng.name.trim() || "Your gesture") + " → " + act)}</span></div>
+        <div class="testbox"><div class="sb"><span style="font-size:15px;font-weight:700">Try it now</span><span class="num" id="ngTestText">—</span></div>
+          <div class="meter"><span id="ngTest" style="width:0%"></span></div>
+          <span class="muted small">${S && S.running ? "Make the pose in front of the camera. A full bar counts as a match. Nothing fires until you save." : "Press Start to test it live."}</span></div>
+        <div style="display:flex;flex-direction:column;gap:8px"><span class="muted s13">How exact?</span>
+          <div class="seg">${Object.keys(TOL).map((t) => `<button class="${ng.tol === t ? "on" : ""}" data-act="ngTol" data-v="${t}">${t}</button>`).join("")}</div>
+          <span class="muted small">${TOL_HINT[ng.tol]}</span></div>`;
+    }
+    return `<div class="panel">
+      <div class="phead"><button class="back" data-act="close" aria-label="Close">‹</button><b style="flex:1">New gesture</b><span class="muted s13">Step ${ng.step} of 3</span></div>
+      <div class="steps3">${steps}</div>
+      <div style="display:flex;flex-direction:column;gap:16px">${body}</div>
+      <div style="flex:1"></div>
+      <div style="display:flex;flex-direction:column;gap:8px">${blocked ? `<div class="muted s13" style="text-align:center" id="ngBlocked">${esc(blocked)}</div>` : ""}
+        <div class="navrow"><button class="obtn" data-act="ngBack">${ng.step === 1 ? "Cancel" : "Back"}</button>
+          <button class="pbtn" data-act="ngNext" id="ngNext" ${canNext ? "" : "disabled"}>${ng.step === 3 ? "Save gesture" : "Next"}</button></div></div>
+    </div>`;
+  }
+
+  function inspView(g) {
+    const del = confirmDel === g.id;
+    const pills = ACTS.map(([t, l]) => `<button class="pill ${insp.type === t ? "on" : ""}" data-act="inspAction" data-v="${t}" style="height:34px">${esc(l)}</button>`).join("");
+    return `<div class="panel" id="inspPanel">
+      <div class="phead"><button class="back" data-act="close" aria-label="Back">‹</button>
+        <input class="title-in" data-input="inspName" value="${esc(g.name)}" aria-label="Gesture name" maxlength="60">
+        ${tog("inspToggle", g.enabled !== false, "Enabled")}</div>
+      <div class="row" style="gap:16px;flex-wrap:nowrap"><div class="ico" style="width:88px;height:88px;border-radius:16px">${handSvg(g.icon, V("purple"), 64, 2.6)}</div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:8px"><div class="sb"><span class="muted s13">Match now</span><span class="num" id="inspMatchText">—</span></div>
+          <div class="meter"><span id="inspMatch" style="width:0%"></span></div>
+          <span class="muted small">${g.samples} samples${g.hands > 1 ? " · two hands" : ""}</span></div></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><label class="muted s13">Does</label><div class="row" style="gap:6px">${pills}</div>
+        ${insp.type === "keys" ? `<div style="display:flex;flex-direction:column;gap:10px;margin-top:8px"><span class="muted s13">Shortcut</span>${recorder("insp", insp.keys, false)}
+          <span class="muted small" style="line-height:1.4">Key not caught? F-keys, media keys and keys Windows grabs are under Special keys.</span>
+          ${holdRow("inspHold", insp.hold)}</div>` : ""}
+        ${insp.type === "scroll" ? slider("inspAmt", "Scroll amount", (g.action && g.action.amount) || 3, -20, 20, 1, (v) => (v > 0 ? "+" : "") + v, "20 down", "20 up",
+          (v) => saveGesture(g.id, { action: { type: "scroll", amount: v } })) : ""}</div>
+      ${slider("tol", "Tolerance", g.tolerance, 0.03, 0.5, 0.01, (v) => v.toFixed(2), "Strict", "Loose", (v) => saveGesture(g.id, { tolerance: v }))}
+      ${slider("hold", "Hold", g.hold, 0.1, 3, 0.1, (v) => v.toFixed(1) + " s", "0.1 s", "3 s", (v) => saveGesture(g.id, { hold: v }))}
+      <div style="flex:1"></div>
+      <button class="rerec" data-act="rerecord"><i></i>Re-record</button>
+      ${del ? `<div class="delask"><span>Delete “${esc(g.name)}”?</span><button data-act="cancelDel">Keep</button><button class="red" data-act="del">Delete</button></div>`
+        : `<button class="linkbtn del" data-act="askDel" style="align-self:center;font-size:14px;height:36px">Delete gesture</button>`}
+    </div>`;
+  }
+
+  function settingsView() {
+    const v = SET || {};
+    const cur = CAMS.find((c) => c.index === v.camera);
+    const camLabel = cur ? cur.name : `Camera ${v.camera ?? 0}`;
+    const opts = CAMS.map((c) => `<button class="${c.index === v.camera ? "on" : ""}" data-act="camPick" data-v="${c.index}"><span>${esc(c.name)}${c.phone ? " · phone" : c.virtual ? " · virtual" : ""}</span><b>${c.index === v.camera ? "✓" : ""}</b></button>`).join("");
+    const pct = (x) => Math.round(x * 100) + "%";
+    const two = v.two_hands !== false;
+    const sp = S && S.setup_progress;
+    return `<div class="panel" style="gap:20px">
+      <div class="phead"><button class="back" data-act="close" aria-label="Back">‹</button><b>Settings</b></div>
+      <div style="display:flex;flex-direction:column;gap:6px"><label class="muted s13">Camera${S && S.running ? " · switching restarts tracking" : ""}</label>
+        <div class="dd" data-dd="1"><button class="ddbtn" data-act="camToggle"><span>${esc(camLabel)}</span><span class="muted small">▼</span></button>
+          ${ddOpen ? `<div class="ddmenu">${opts}<button class="muted" data-act="camRefresh"><span>↻ Refresh camera list</span></button></div>` : ""}</div>
+        ${camNote ? `<span class="muted small">${esc(camNote)}</span>` : ""}
+        ${cur && cur.phone ? `<button class="obtn" data-act="resetPhone" style="align-self:flex-start">Reset phone camera</button>` : ""}</div>
+      <div class="sep" style="border-top:none;padding-top:0">
+        <div class="trow"><div><div class="tt">Two hands</div><div class="td">One hand moves the cursor, the other clicks, so clicking never nudges it</div></div>${tog("two", two, "Two hands")}</div>
+        <div style="display:flex;flex-direction:column;gap:6px;opacity:${two ? 1 : 0.4}"><span class="muted s13">Hand that moves the cursor</span>
+          <div class="seg"><button class="${v.pointer_hand !== "left" ? "on" : ""}" data-act="ptr" data-v="right">Right</button><button class="${v.pointer_hand === "left" ? "on" : ""}" data-act="ptr" data-v="left">Left</button></div></div></div>
+      ${slider("smoothing", "Smoothing", v.smoothing ?? 0.5, 0, 0.95, 0.05, pct, "Snappy", "Smooth", (x) => saveSettings({ smoothing: x }), true)}
+      ${slider("margin", "Reach", v.margin ?? 0.15, 0, 0.35, 0.01, pct, "Whole camera", "Small moves", (x) => saveSettings({ margin: x }), true)}
+      ${slider("pinch", "Pinch sensitivity", v.pinch ?? 0.35, 0.1, 0.6, 0.01, (x) => x.toFixed(2), "Tight", "Loose", (x) => saveSettings({ pinch: x }), true)}
+      ${slider("drag_hold", "Hold pinch to drag", v.drag_hold ?? 0.35, 0.15, 1.5, 0.05, (x) => x.toFixed(2) + " s", "Quick", "Slow", (x) => saveSettings({ drag_hold: x }), true)}
+      ${slider("scroll_speed", "Scroll speed", v.scroll_speed ?? 1, 1, 10, 1, (x) => String(x), "Slow", "Fast", (x) => saveSettings({ scroll_speed: x }), true)}
+      ${slider("palm_hold", "Palm hold to pause", v.palm_hold ?? 1, 0.3, 3, 0.1, (x) => x.toFixed(1) + " s", "0.3 s", "3 s", (x) => saveSettings({ palm_hold: x }), true)}
+      <div class="sep">
+        <div class="trow"><div><div class="tt">Ring around the cursor</div><div class="td">Same colors as the hands in the preview</div></div>${tog("ring", v.overlay !== false, "Ring")}</div>
+        <div class="legend">${[["Move hand", "blue"], ["Click / drag", "green"], ["Scroll", "amber"], ["Gesture", "purple"], ["Recording", "red"], ["Paused", "muted"]]
+          .map(([t, c]) => `<div style="--c:${V(c)}"><i></i>${t}</div>`).join("")}</div>
+        <span class="muted small">In the preview the hand in control is bright with a label; the other hand is dimmed.</span></div>
+      <div class="sep" style="flex-direction:row;align-items:center;gap:12px">
+        <div style="flex:1"><div class="tt s14" style="font-weight:600">Hand tracker</div><div class="muted small">${S && S.setup === "ready" ? "Installed · mediapipe 0.10.14" : S && S.setup === "working" ? `Installing ${(sp && sp.percent) || 0}%` : "Not ready"}</div></div>
+        <button class="obtn" data-act="reinstall" ${S && (S.running || S.setup === "working") ? "disabled title=\"Stop tracking first\"" : ""}>Reinstall</button></div>
+    </div>`;
+  }
+
+  function renderRail() {
+    let html;
+    const g = panel && panel.startsWith("g:") ? G.find((x) => x.id === panel.slice(2)) : null;
+    if (panel === "new") html = newView();
+    else if (g) html = inspView(g);
+    else if (panel === "settings") html = settingsView();
+    else if (panel === "game") html = gameView();
+    else { if (panel && panel.startsWith("g:")) panel = null; html = listView(); }
+    const rail = $("rail"), focus = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.capture : null;
+    setHTML(rail, html);
+    if (focus) { const el = rail.querySelector(`[data-capture="${focus}"]`); if (el) el.focus(); }
+    document.body.setAttribute("data-live-view", `handmouse:${panel === "settings" || panel === "game" || panel === "new" ? panel : g ? "gesture" : "live"}`);
+    renderTop();
+    updateLive();
+  }
+
+  // per-tick bits of the rail (no rebuild, so inputs keep focus)
+  function updateLive() {
+    const s = S || {}, live = s.running && !s.record ? modeKey(s) : null, m = s.running ? s.match : null;
+    document.querySelectorAll("[data-b]").forEach((el) => {
+      const b = BUILTIN.find((x) => x[0] === el.dataset.b);
+      el.classList.toggle("act", !!(live && b && b[6] === live));
+    });
+    const pctFor = (id) => {
+      const g = G.find((x) => x.id === id);
+      return m && m.id === id && g ? Math.round(100 * Math.max(0.05, 1 - m.distance / (g.tolerance || 0.15))) : 0;
+    };
+    document.querySelectorAll("[data-gm]").forEach((el) => {
+      const p = pctFor(el.dataset.gm);
+      el.style.width = p + "%";
+      el.closest(".gi").classList.toggle("act", p > 0);
+    });
+    const ip = panel && panel.startsWith("g:") ? panel.slice(2) : null;
+    if (ip && $("inspMatch")) {
+      const p = pctFor(ip);
+      $("inspMatch").style.width = p + "%";
+      $("inspMatchText").textContent = s.running ? p + "%" : "—";
+      const box = $("inspPanel");
+      box.style.borderColor = p ? V("purple") : "";
+      box.style.boxShadow = p ? "0 0 0 4px color-mix(in srgb, var(--purple) 22%, transparent)" : "";
+    }
+    if (panel === "new" && $("ngTest")) {
+      const p = pctFor(ng.recId);
+      $("ngTest").style.width = p + "%";
+      $("ngTestText").textContent = s.running ? p + "%" : "—";
+    }
+  }
+
+  // ---------- data ----------
+  async function loadGestures() {
+    const out = await rpc("gestures");
+    if (fail(out)) return;
+    G = out.gestures || [];
+    BI = out.builtins || {};
+    renderRail();
+  }
+  async function loadSettings() {
+    const out = await rpc("settings");
+    if (!fail(out)) SET = out.settings;
+  }
+  async function loadCameras(refresh) {
+    if (refresh) camNote = "Looking for cameras…";
+    if (panel === "settings") renderRail();
+    const out = await rpc("cameras", { refresh });
+    camNote = out.ok === false ? out.error : out.note || "";
+    if (out.ok !== false) CAMS = out.cameras || [];
+    if (panel === "settings") renderRail();
+  }
+  let saveT = null, pend = {};
+  function saveSettings(fields) {
+    for (const [k, v] of Object.entries(fields)) pend[k] = k === "builtins" ? { ...(pend.builtins || {}), ...v } : v;
+    SET = { ...SET, ...fields, builtins: { ...(SET && SET.builtins), ...(fields.builtins || {}) } };
+    clearTimeout(saveT);
+    saveT = setTimeout(async () => {
+      const f = pend; pend = {};
+      const out = await rpc("save_settings", { fields: f });
+      if (fail(out)) return;
+      SET = out.settings;
+      if (out.restarted) toast("Switched camera: tracking restarted");
+    }, 200);
+  }
+  async function saveGesture(id, fields) {
+    const out = await rpc("save_gesture", { gesture_id: id, fields });
+    if (fail(out)) return null;
+    const i = G.findIndex((g) => g.id === id);
+    if (i >= 0) G[i] = out.gesture;
+    return out.gesture;
+  }
+  async function record(params) {
+    if (!S || S.setup !== "ready") { toast("Finish the one-time setup first", V("amber")); return null; }
+    const out = await rpc("record_gesture", params);
+    if (fail(out)) return null;
+    recWas = true;
+    tick();
+    return out.id;
+  }
+  async function checkRecordDone(s) {
+    const lr = s.last_record;
+    if (!lr || lr.t <= lastRecordT) return;
+    const first = lastRecordT === 0;
+    lastRecordT = lr.t;
+    if (first) return;  // an old result from before this page opened
+    await loadGestures();
+    if (panel === "new" && lr.id === ng.recId) {
+      ng.rec = lr.ok ? { samples: lr.samples } : ng.rec;
+      ng.failed = !lr.ok;
+      toast(lr.ok ? `Pose captured ✓ (${lr.samples} samples)` : "Hand not seen enough. Try again", lr.ok ? V("green") : V("red"));
+    } else toast(lr.ok ? `Recorded ✓ (${lr.samples} samples)` : lr.error || "Recording failed", lr.ok ? V("green") : V("red"));
+    renderRail();
+  }
+  function closePanel() {
+    if (panel === "new" && ng.recId && !ng.saved) {
+      if (S && S.record && S.record.id === ng.recId) rpc("cancel_record");
+      if (G.some((g) => g.id === ng.recId)) rpc("delete_gesture", { gesture_id: ng.recId }).then(loadGestures);
+    }
+    panel = null; confirmDel = null; ddOpen = false; ng = NG0();
+    renderRail();
+  }
+  function openInspector(id) {
+    const g = G.find((x) => x.id === id);
+    if (!g) return;
+    insp = { type: (g.action && g.action.type) || "none", keys: g.action && g.action.type === "keys" ? g.action.keys : "", hold: !!(g.action && g.action.hold) };
+    panel = "g:" + id; confirmDel = null;
+    renderRail();
+  }
+  function ngAction() {
+    return ng.action === "keys" ? { type: "keys", keys: ng.keys, hold: ng.hold } : ng.action === "scroll" ? { type: "scroll", amount: ng.amt } : { type: ng.action || "none" };
+  }
+  function setKeys(scope, v) {
+    if (scope === "ng") { ng.keys = v; ng.action = v ? "keys" : null; }
+    else {
+      insp.keys = v;
+      const id = panel && panel.slice(2);
+      if (id && hasMainKey(v)) saveGesture(id, { action: { type: "keys", keys: v, hold: insp.hold } }).then(() => renderRail());
+    }
+    renderRail();
+  }
+  function joinKeys(md, k) { return [...MODS.filter((m) => md[m]), k].filter(Boolean).join("+"); }
+  function keysOf(scope) { return scope === "ng" ? (ng.action === "keys" ? ng.keys : "") : insp.keys; }
+
+  // ---------- events ----------
+  const ACT = {
+    async run() {
+      const out = await rpc(S && S.running ? "stop" : "start");
+      fail(out); tick();
+    },
+    settings() {
+      panel = panel === "settings" ? null : "settings"; ddOpen = false;
+      if (panel) loadCameras(false);
+      renderRail();
+    },
+    camSettings() { panel = "settings"; loadCameras(false); renderRail(); },
+    close: closePanel,
+    async setup() { fail(await rpc("setup")); tick(); },
+    log() { logOpen = !logOpen; renderStage(); },
+    async resetPhone(btn) {
+      btn.disabled = true; btn.textContent = "Resetting…";
+      const out = await rpc("reset_phone_camera");
+      if (!fail(out)) toast(out.note || "Phone camera reset");
+      tick();
+    },
+    async cancelRec() { await rpc("cancel_record"); tick(); },
+    builtin(btn) {
+      const k = btn.dataset.v, on = BI[k] === false;
+      BI[k] = on; saveSettings({ builtins: { [k]: on } }); renderRail();
+    },
+    open(btn) { openInspector(btn.dataset.v); },
+    new() { ng = NG0(); panel = "new"; renderRail(); },
+    async ngRecord() {
+      if (S && S.record && S.record.id === ng.recId) { await rpc("cancel_record"); tick(); return; }
+      ng.failed = false;
+      const id = await record(ng.recId ? { gesture_id: ng.recId } : { name: ng.name.trim() || "New gesture", action: { type: "none" } });
+      if (id) { ng.recId = id; renderRail(); }
+    },
+    ngStep(btn) { const n = +btn.dataset.v; if (n < ng.step) { ng.step = n; renderRail(); } },
+    ngBack() { if (ng.step === 1) closePanel(); else { ng.step -= 1; renderRail(); } },
+    async ngNext(btn) {
+      if (btn.disabled) return;
+      if (ng.step < 3) { ng.step += 1; renderRail(); if (ng.step === 3) setTimeout(() => $("ngName") && $("ngName").focus(), 0); return; }
+      btn.disabled = true;
+      const g = await saveGesture(ng.recId, { name: ng.name.trim(), action: ngAction(), tolerance: TOL[ng.tol], enabled: true });
+      if (!g) { btn.disabled = false; return; }
+      ng.saved = true;
+      const id = ng.recId;
+      ng = NG0();
+      toast(`Saved “${g.name}”`);
+      await loadGestures();
+      openInspector(id);
+    },
+    ngAction(btn) { ng.action = btn.dataset.v; ng.keys = ""; renderRail(); },
+    ngTol(btn) { ng.tol = btn.dataset.v; if (ng.recId) saveGesture(ng.recId, { tolerance: TOL[ng.tol] }); renderRail(); },
+    mod(btn) {
+      const [scope, m] = btn.dataset.v.split(":");
+      const parts = keysOf(scope).split("+").filter(Boolean);
+      const md = Object.fromEntries(MODS.map((x) => [x, parts.includes(x)]));
+      md[m] = !md[m];
+      setKeys(scope, joinKeys(md, parts.find((p) => !MODS.includes(p)) || ""));
+    },
+    clearKeys(btn) { setKeys(btn.dataset.v, ""); },
+    special(btn) { const sp = spec[btn.dataset.v]; sp.open = !sp.open; renderRail(); },
+    grp(btn) { const i = btn.dataset.v.indexOf(":"); spec[btn.dataset.v.slice(0, i)].group = btn.dataset.v.slice(i + 1); renderRail(); },
+    pick(btn) {
+      const i = btn.dataset.v.indexOf(":"), scope = btn.dataset.v.slice(0, i), k = btn.dataset.v.slice(i + 1);
+      if (k.includes("+")) return setKeys(scope, k);
+      const parts = keysOf(scope).split("+").filter(Boolean);
+      setKeys(scope, joinKeys(Object.fromEntries(MODS.map((x) => [x, parts.includes(x)])), k));
+    },
+    async inspToggle() {
+      const id = panel.slice(2), g = G.find((x) => x.id === id);
+      if (g) { await saveGesture(id, { enabled: g.enabled === false }); renderRail(); }
+    },
+    async inspAction(btn) {
+      const id = panel.slice(2), t = btn.dataset.v;
+      insp.type = t;
+      if (t === "keys") { if (hasMainKey(insp.keys)) await saveGesture(id, { action: { type: "keys", keys: insp.keys, hold: insp.hold } }); }
+      else await saveGesture(id, { action: t === "scroll" ? { type: "scroll", amount: 3 } : { type: t } });
+      renderRail();
+      if (t === "keys") { const c = document.querySelector('[data-capture="insp"]'); if (c) c.focus(); }
+    },
+    rerecord() { record({ gesture_id: panel.slice(2) }); },
+    askDel() { confirmDel = panel.slice(2); renderRail(); },
+    cancelDel() { confirmDel = null; renderRail(); },
+    async del() {
+      const id = panel.slice(2), g = G.find((x) => x.id === id);
+      const out = await rpc("delete_gesture", { gesture_id: id });
+      if (fail(out)) return;
+      panel = null; confirmDel = null;
+      toast(`Deleted ${g ? g.name : "gesture"}`, V("muted"));
+      loadGestures();
+    },
+    camToggle() { ddOpen = !ddOpen; renderRail(); },
+    camPick(btn) { ddOpen = false; saveSettings({ camera: +btn.dataset.v }); renderRail(); },
+    camRefresh() { ddOpen = false; loadCameras(true); },
+    two() { saveSettings({ two_hands: !(SET && SET.two_hands !== false) }); renderRail(); },
+    ptr(btn) { saveSettings({ pointer_hand: btn.dataset.v }); renderRail(); },
+    ring() { saveSettings({ overlay: !(SET && SET.overlay !== false) }); renderRail(); },
+    game() {
+      const on = !gameOn();
+      if (S) S.game = on;
+      saveSettings({ game_mode: on });
+      toast(on ? "Game mode on: left hand walks, right hand looks" : "Game mode off", on ? V("accent") : V("muted"));
+      renderRail();
+    },
+    gamePanel() { panel = "game"; renderRail(); },
+    gkSet(btn) {
+      const i = btn.dataset.v.indexOf(":");
+      saveSettings({ game_keys: { ...gameKeys(), [btn.dataset.v.slice(0, i)]: btn.dataset.v.slice(i + 1) } });
+      renderRail();
+    },
+    gkReset() { saveSettings({ game_keys: { ...GAME_DEFAULT } }); renderRail(); toast("Game keys reset to W A S D"); },
+    ngHold() { ng.hold = !ng.hold; renderRail(); },
+    async inspHold() {
+      insp.hold = !insp.hold;
+      if (hasMainKey(insp.keys)) await saveGesture(panel.slice(2), { action: { type: "keys", keys: insp.keys, hold: insp.hold } });
+      renderRail();
+    },
+    async reinstall(btn) { if (btn.disabled) return; panel = null; renderRail(); fail(await rpc("setup")); tick(); },
+  };
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-act]");
+    if (btn && ACT[btn.dataset.act]) { e.preventDefault(); ACT[btn.dataset.act](btn); }
+    else if (ddOpen && !e.target.closest("[data-dd]")) { ddOpen = false; renderRail(); }
+  });
+  document.addEventListener("input", (e) => {
+    const t = e.target;
+    if (t.dataset.slider) {
+      const sl = SL[t.dataset.slider], v = +t.value, p = ((v - sl.min) / (sl.max - sl.min)) * 100, box = t.closest(".sl");
+      box.querySelector(".fill").style.width = p + "%";
+      box.querySelector(".knob").style.left = p + "%";
+      const bub = box.querySelector(".bub"); bub.style.left = p + "%"; bub.textContent = sl.fmt(v);
+    } else if (t.dataset.input === "ngName") {
+      ng.name = t.value;
+      const ok = !!ng.name.trim();
+      $("ngNext").disabled = !ok;
+      if ($("ngBlocked")) $("ngBlocked").hidden = ok;
+      const act = $("ngSum").textContent.split(" → ").slice(1).join(" → ");
+      $("ngSum").textContent = `${ng.name.trim() || "Your gesture"} → ${act}`;
+    }
+  });
+  document.addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.dataset.slider) SL[t.dataset.slider].save(+t.value);
+    else if (t.dataset.input === "inspName" && t.value.trim()) saveGesture(panel.slice(2), { name: t.value.trim() });
+  });
+  document.addEventListener("keydown", (e) => {
+    const inInput = e.target.closest && e.target.closest("input");
+    const capEl = e.target.closest && e.target.closest("[data-capture]");
+    if (capEl && capEl.dataset.capture.startsWith("gk:")) {
+      // game binding: one key (a lone Shift / Ctrl is a fine game key), or a combo
+      e.preventDefault(); e.stopPropagation();
+      if (e.key === "Escape") { capEl.blur(); return; }
+      const n = keyName(e), md = { ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, win: e.metaKey };
+      const combo = MODS.includes(n) ? n : joinKeys(md, n);
+      saveSettings({ game_keys: { ...gameKeys(), [capEl.dataset.capture.slice(3)]: combo } });
+      renderRail();
+      return;
+    }
+    const scope = capEl ? capEl.dataset.capture : panel === "new" && ng.step === 2 && !inInput ? "ng" : null;
+    if (scope) {
+      if (e.key === "Escape" && !capEl) { closePanel(); return; }
+      e.preventDefault(); e.stopPropagation();
+      const n = keyName(e), md = { ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, win: e.metaKey };
+      if (MODS.includes(n)) { md[n] = true; setKeys(scope, joinKeys(md, "")); } else setKeys(scope, joinKeys(md, n));
+      return;
+    }
+    if (e.key === "Escape" && panel && !inInput) closePanel();
+    if (e.key === "Enter" && inInput && e.target.dataset.input === "ngName" && ng.name.trim()) ACT.ngNext($("ngNext"));
+  });
+
+  // ---------- loop ----------
+  async function tick() {
+    clearTimeout(timer);
+    if (!visible) return;
+    const s = await rpc("status");
+    if (s.ok !== false) {
+      const prev = S;
+      S = s;
+      if (!SET) SET = s.settings;
+      image = s.running ? ((await rpc("preview")).image || "") : "";
+      await checkRecordDone(s);
+      const recNow = !!s.record;
+      // rebuild the rail only when something it shows changed shape
+      if (!prev || prev.running !== s.running || prev.setup !== s.setup || recNow !== recWas || modeKey(prev) !== modeKey(s) && panel === null) { recWas = recNow; renderRail(); }
+      renderTop(); renderStage(); updateLive();
+    }
+    timer = setTimeout(tick, S && S.running ? 80 : S && S.setup === "working" ? 250 : 2000);
+  }
+  window.addEventListener("message", (ev) => {
+    const e = ev.data && ev.data.channel === CHANNEL ? ev.data.event : null;
+    if (!e) return;
+    if (e.type === "panel.visibility") { visible = !!e.visible; if (visible) tick(); else clearTimeout(timer); }
+    if (e.type === "plugin_scope_changed") { loadSettings().then(loadGestures); }
+  });
+  window.addEventListener("ducky-live-goto", (e) => {
+    const t = String((e.detail && e.detail.view) || "").split(":")[1];
+    if (t === "settings") ACT.camSettings();
+    else if (t === "new") ACT.new();
+    else if (t === "live") closePanel();
+  });
+  window.addEventListener("DOMContentLoaded", async () => {
+    await loadSettings();
+    await loadGestures();
+    tick();
+  });
+</script>
+</body>
+</html>

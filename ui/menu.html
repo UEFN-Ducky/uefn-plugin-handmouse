@@ -1,0 +1,84 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="../../_kit/ducky.js"></script>
+  <style>
+    body { margin: 0; padding: 12px; }
+    .row { display: flex; align-items: center; gap: 8px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+    .dot.on { background: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 25%, transparent); }
+    .t { font-weight: 600; flex: 1; }
+    .d { font-size: 12px; color: var(--muted); margin: 6px 0 10px; min-height: 16px; }
+    .btns { display: flex; gap: 8px; }
+    .btns button { flex: 1; }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  </style>
+</head>
+<body class="dk-page">
+  <div id="box">
+    <div class="row"><span class="dot" id="dot"></span><span class="t" id="title">Hand Mouse</span></div>
+    <div class="d" id="detail">Checking…</div>
+    <div class="btns">
+      <button class="dk-btn dk-btn--primary" id="toggle" disabled>Start</button>
+      <button class="dk-btn" id="open">Open Hand Mouse</button>
+    </div>
+  </div>
+  <script>
+    const CHANNEL = "uefn-plugin-ui";
+    function call(method, params = {}) {
+      const id = crypto.randomUUID();
+      return new Promise((resolve, reject) => {
+        function onMsg(ev) {
+          const d = ev.data;
+          if (!d || d.channel !== CHANNEL || d.id !== id) return;
+          window.removeEventListener("message", onMsg);
+          d.ok ? resolve(d.result) : reject(new Error(d.error || "bridge error"));
+        }
+        window.addEventListener("message", onMsg);
+        parent.postMessage({ channel: CHANNEL, id, method, params }, "*");
+      });
+    }
+    const rpc = (method, params = {}) => call("plugin.call", { method, params }).catch((e) => ({ ok: false, error: e.message }));
+    const $ = (id) => document.getElementById(id);
+    const LABEL = { move: "Moving", drag: "Dragging", scroll: "Scrolling", gesture: "Gesture", recording: "Recording",
+      paused: "Paused (open palm to resume)", nohand: "Running · no hand in view", nocamera: "Running · no picture", starting: "Starting…" };
+    let S = null, timer = 0, lastDot = null;
+
+    async function tick() {
+      clearTimeout(timer);
+      const s = await rpc("status");
+      if (s.ok !== false) {
+        S = s;
+        const on = !!s.running;
+        $("dot").classList.toggle("on", on);
+        $("title").textContent = on ? "Hand Mouse · running" : "Hand Mouse";
+        $("detail").textContent = s.error ? "Stopped with an error: open Hand Mouse."
+          : s.warning ? s.warning
+          : on ? `${LABEL[s.mode] || s.mode} · ${s.fps} fps`
+          : s.setup !== "ready" ? "Set up needed: open Hand Mouse." : "Stopped.";
+        $("toggle").textContent = on ? "Stop" : "Start";
+        $("toggle").className = "dk-btn" + (on ? "" : " dk-btn--primary");
+        $("toggle").disabled = s.setup !== "ready";
+        const dot = s.error ? "warn" : on ? "error" : "";  // "error" = the red dot
+        if (dot !== lastDot) {
+          lastDot = dot;
+          call("header_menu_badge", { dot, count: 0 }).catch(() => {});
+        }
+      }
+      timer = setTimeout(tick, S && S.running ? 1000 : 2500);
+    }
+
+    $("toggle").onclick = async () => {
+      $("toggle").disabled = true;
+      await rpc(S && S.running ? "stop" : "start");
+      tick();
+    };
+    $("open").onclick = () => call("panel.open", { action: "panel:main" }).catch(() => {});
+    window.addEventListener("DOMContentLoaded", () => {
+      call("header_menu_size", { height: document.getElementById("box").offsetHeight + 24 }).catch(() => {});
+      tick();
+    });
+  </script>
+</body>
+</html>

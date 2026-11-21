@@ -1,0 +1,188 @@
+{
+  "id": "handmouse",
+  "kind": "plugin",
+  "version": "2.0.3",
+  "label": "Hand Mouse",
+  "description": "Control the Windows cursor with your hand through the webcam: point to move, quick pinch to click, hold the pinch to drag, two fingers to scroll, pinch with both hands to resize, zoom and rotate (real two-finger touch), a game mode (one hand walks with WASD, the other aims the camera, every control re-bindable) and your own recorded gestures for clicks, hotkeys and held game keys. Works in Ducky, UEFN, games and every app.",
+  "min_app_version": "1.0.0",
+  "default_enabled": false,
+  "data_sharing": false,
+  "secret_keys": [],
+  "contributes": {
+    "agent.tools": {
+      "category": "handmouse",
+      "intent_pattern": "\\b(hand ?mouse|hand tracking|finger tracking|gestures?)\\b",
+      "plan_tools": [
+        "handmouse_status",
+        "handmouse_gestures"
+      ],
+      "destructive_tools": [
+        "handmouse_setup",
+        "handmouse_start",
+        "handmouse_record_gesture",
+        "handmouse_delete_gesture",
+        "handmouse_reset_phone_camera"
+      ]
+    },
+    "ui.panels": [
+      {
+        "id": "main",
+        "title": "Hand Mouse",
+        "icon": "hand",
+        "entry": "ui/index.html"
+      },
+      {
+        "id": "menu",
+        "title": "Hand Mouse menu",
+        "icon": "hand",
+        "entry": "ui/menu.html"
+      }
+    ],
+    "header.menus": [
+      {
+        "id": "main",
+        "title": "Hand Mouse",
+        "icon": "hand",
+        "ui": "panel:menu",
+        "width": 300,
+        "order": 60
+      }
+    ],
+    "automations": {
+      "nodes": [
+        {
+          "id": "handmouse.start",
+          "label": "Start Hand Mouse",
+          "group": "Hand Mouse",
+          "config_fields": [
+            {
+              "id": "confirm",
+              "label": "Take over the cursor",
+              "type": "boolean",
+              "default": false
+            }
+          ],
+          "outputs": [
+            {
+              "id": "running",
+              "label": "Running",
+              "type": "boolean"
+            }
+          ]
+        },
+        {
+          "id": "handmouse.stop",
+          "label": "Stop Hand Mouse",
+          "group": "Hand Mouse",
+          "outputs": [
+            {
+              "id": "running",
+              "label": "Running",
+              "type": "boolean"
+            }
+          ]
+        },
+        {
+          "id": "handmouse.status",
+          "label": "Hand Mouse status",
+          "group": "Hand Mouse",
+          "outputs": [
+            {
+              "id": "running",
+              "label": "Running",
+              "type": "boolean"
+            },
+            {
+              "id": "mode",
+              "label": "Gesture mode",
+              "type": "string"
+            },
+            {
+              "id": "setup",
+              "label": "Setup",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "id": "handmouse.gestures",
+          "label": "List Hand Mouse gestures",
+          "group": "Hand Mouse",
+          "outputs": [
+            {
+              "id": "gestures",
+              "label": "Gestures",
+              "type": "json"
+            },
+            {
+              "id": "count",
+              "label": "Count",
+              "type": "number"
+            }
+          ]
+        }
+      ],
+      "templates": [
+        {
+          "id": "handmouse-status",
+          "label": "Check Hand Mouse",
+          "category": "Hand Mouse",
+          "description": "Chat start \u2192 Agent \u2192 Hand Mouse status \u2192 Finish.",
+          "graph": {
+            "nodes": [
+              {
+                "id": "s",
+                "type": "start.chat",
+                "x": 0,
+                "y": 0,
+                "config": {}
+              },
+              {
+                "id": "a",
+                "type": "pipeline.agent",
+                "x": 200,
+                "y": 0,
+                "config": {}
+              },
+              {
+                "id": "n",
+                "type": "handmouse.status",
+                "x": 400,
+                "y": 0,
+                "config": {}
+              },
+              {
+                "id": "f",
+                "type": "pipeline.finish",
+                "x": 600,
+                "y": 0,
+                "config": {}
+              }
+            ],
+            "edges": [
+              {
+                "source": "s",
+                "target": "a",
+                "kind": "main"
+              },
+              {
+                "source": "a",
+                "target": "n",
+                "kind": "main"
+              },
+              {
+                "source": "n",
+                "target": "f",
+                "kind": "main"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "backend": {
+    "entry": "backend",
+    "register": "register"
+  }
+}
