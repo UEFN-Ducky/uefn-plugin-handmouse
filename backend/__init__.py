@@ -18,6 +18,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -95,10 +96,23 @@ exec(compile(helper_src.HELPER, "handmouse_helper", "exec"), _HELPER_NS)
 parse_keys = _HELPER_NS["parse_keys"]
 
 
+# ponytail: the helper drives the cursor with Win32 SendInput; a Quartz CGEvent port is the macOS upgrade
+WINDOWS_ONLY = ("Hand Mouse runs on Windows only (it moves the cursor with Win32 input). "
+                "On a Mac, run it on the paired Windows PC.")
+
+
 def _pid_alive(pid: int) -> bool:
     # ponytail: PID reuse could fool this after a reboot-length gap; the stop file still ends ours
     if pid <= 0:
         return False
+    if sys.platform != "win32":
+        try:
+            os.kill(pid, 0)
+        except PermissionError:
+            return True
+        except OSError:
+            return False
+        return True
     k = ctypes.windll.kernel32
     h = k.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
     if not h:
@@ -148,6 +162,8 @@ def register(api) -> None:
         return env
 
     def venv_python(windowless: bool = False) -> Path:
+        if sys.platform != "win32":
+            return F("venv") / "bin" / "python"
         return F("venv") / "Scripts" / ("pythonw.exe" if windowless else "python.exe")
 
     def is_setup() -> bool:
@@ -413,6 +429,8 @@ def register(api) -> None:
             stop_beat.set()
 
     def setup() -> dict:
+        if sys.platform != "win32":
+            return {"ok": False, "error": WINDOWS_ONLY}
         with lock:
             if setup_state()["phase"] == "working":
                 return {"ok": True, "setup": "working", "note": "Already installing."}
@@ -464,6 +482,8 @@ def register(api) -> None:
         return out
 
     def start() -> dict:
+        if sys.platform != "win32":
+            return {"ok": False, "error": WINDOWS_ONLY}
         with lock:
             if running():
                 return {"ok": True, "running": True, "note": "Already running."}
